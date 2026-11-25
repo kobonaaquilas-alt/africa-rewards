@@ -141,7 +141,7 @@ using ((select auth.uid()) = id or (select private.is_platform_admin()));
 drop policy if exists "profiles_insert_self" on public.profiles;
 create policy "profiles_insert_self" on public.profiles
 for insert to authenticated
-with check ((select auth.uid()) = id);
+with check ((select auth.uid()) = id and account_type in ('participant','creator'));
 
 drop policy if exists "profiles_update_self" on public.profiles;
 create policy "profiles_update_self" on public.profiles
@@ -149,8 +149,14 @@ for update to authenticated
 using ((select auth.uid()) = id)
 with check ((select auth.uid()) = id);
 
+drop policy if exists "profiles_admin_update" on public.profiles;
+create policy "profiles_admin_update" on public.profiles
+for update to authenticated
+using ((select private.is_platform_admin()))
+with check ((select private.is_platform_admin()));
+
 revoke update on public.profiles from anon, authenticated;
-grant update (display_name, country, phone_number, updated_at) on public.profiles to authenticated;
+grant update (display_name, country, phone_number, updated_at, account_type) on public.profiles to authenticated;
 
 -- Admin membership is provisioned manually by the project owner in SQL Editor.
 drop policy if exists "admins_read_self_or_admin" on public.platform_admins;
@@ -179,7 +185,7 @@ create policy "campaigns_update_owner_or_admin" on public.campaigns
 for update to authenticated
 using (advertiser_id = (select auth.uid()) or (select private.is_platform_admin()))
 with check (
-  (advertiser_id = (select auth.uid()) and status in ('draft','pending_fee_payment','pending_review','cancelled'))
+  (advertiser_id = (select auth.uid()) and status in ('draft','pending_fee_payment','cancelled'))
   or (select private.is_platform_admin())
 );
 
@@ -196,6 +202,7 @@ with check (
   advertiser_id = (select auth.uid())
   and exists (select 1 from public.campaigns c where c.id = campaign_id and c.advertiser_id = (select auth.uid()))
   and status = 'submitted'
+  and exists (select 1 from public.campaigns c where c.id = campaign_id and c.status = 'pending_fee_payment' and c.service_fee = amount)
 );
 
 drop policy if exists "fee_payments_admin_update" on public.platform_fee_payments;
@@ -233,8 +240,8 @@ using (
   or (select private.is_platform_admin())
 )
 with check (
-  participant_id = (select auth.uid())
-  or exists (select 1 from public.campaigns c where c.id = campaign_id and c.advertiser_id = (select auth.uid()))
+  (participant_id = (select auth.uid()) and status in ('submitted','withdrawn'))
+  or (exists (select 1 from public.campaigns c where c.id = campaign_id and c.advertiser_id = (select auth.uid())) and status in ('accepted','rejected','approved'))
   or (select private.is_platform_admin())
 );
 
@@ -250,13 +257,26 @@ for insert to authenticated
 with check (
   advertiser_id = (select auth.uid())
   and exists (select 1 from public.campaigns c where c.id = campaign_id and c.advertiser_id = (select auth.uid()))
+  and exists (select 1 from public.campaign_applications a where a.id = application_id and a.status = 'approved')
+  and exists (select 1 from public.campaigns c where c.id = campaign_id and c.participant_reward = amount)
 );
 
 drop policy if exists "payouts_update_parties" on public.participant_payouts;
-create policy "payouts_update_parties" on public.participant_payouts
+drop policy if exists "payouts_update_advertiser" on public.participant_payouts;
+drop policy if exists "payouts_update_participant" on public.participant_payouts;
+drop policy if exists "payouts_update_admin" on public.participant_payouts;
+create policy "payouts_update_advertiser" on public.participant_payouts
 for update to authenticated
-using (advertiser_id = (select auth.uid()) or participant_id = (select auth.uid()) or (select private.is_platform_admin()))
-with check (advertiser_id = (select auth.uid()) or participant_id = (select auth.uid()) or (select private.is_platform_admin()));
+using (advertiser_id = (select auth.uid()))
+with check (advertiser_id = (select auth.uid()) and status = 'marked_paid');
+create policy "payouts_update_participant" on public.participant_payouts
+for update to authenticated
+using (participant_id = (select auth.uid()) and status = 'marked_paid')
+with check (participant_id = (select auth.uid()) and status in ('confirmed_by_participant','disputed'));
+create policy "payouts_update_admin" on public.participant_payouts
+for update to authenticated
+using ((select private.is_platform_admin()))
+with check ((select private.is_platform_admin()));
 
 -- Audit log is visible only to platform admins and cannot be written by normal clients.
 drop policy if exists "audit_admin_read" on public.admin_audit_log;
@@ -270,6 +290,7 @@ grant select, insert, update on public.profiles to authenticated;
 grant select, insert, update on public.campaigns to authenticated;
 grant select, insert, update on public.platform_fee_payments to authenticated;
 grant select, insert, update on public.campaign_applications to authenticated;
-grant select, insert, update on public.participant_payouts to authenticated;
+grant select, insert on public.participant_payouts to authenticated;
+grant update (status, advertiser_proof_reference, marked_paid_at, participant_confirmed_at, dispute_note) on public.participant_payouts to authenticated;
 grant select on public.platform_admins to authenticated;
 grant select on public.admin_audit_log to authenticated;
