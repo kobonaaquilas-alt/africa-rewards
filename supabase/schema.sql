@@ -147,7 +147,7 @@ drop policy if exists "profiles_update_self" on public.profiles;
 create policy "profiles_update_self" on public.profiles
 for update to authenticated
 using ((select auth.uid()) = id)
-with check ((select auth.uid()) = id);
+with check ((select auth.uid()) = id and account_type in ('participant','creator'));
 
 drop policy if exists "profiles_admin_update" on public.profiles;
 create policy "profiles_admin_update" on public.profiles
@@ -257,7 +257,7 @@ for insert to authenticated
 with check (
   advertiser_id = (select auth.uid())
   and exists (select 1 from public.campaigns c where c.id = campaign_id and c.advertiser_id = (select auth.uid()))
-  and exists (select 1 from public.campaign_applications a where a.id = application_id and a.status = 'approved')
+  and exists (select 1 from public.campaign_applications a where a.id = application_id and a.campaign_id = participant_payouts.campaign_id and a.participant_id = participant_payouts.participant_id and a.status = 'approved')
   and exists (select 1 from public.campaigns c where c.id = campaign_id and c.participant_reward = amount)
 );
 
