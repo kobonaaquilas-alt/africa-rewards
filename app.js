@@ -208,7 +208,7 @@ async function renderAdvertiserDashboard(root) {
     db.from("campaigns").select("*").eq("advertiser_id",currentUser.id).order("created_at",{ascending:false}),
     db.from("participant_payouts").select("id,amount,status,created_at").eq("advertiser_id",currentUser.id).order("created_at",{ascending:false}).limit(30),
     db.from("platform_settings").select("fee_payment_phone,fee_payment_operator,fee_instructions").eq("id",true).maybeSingle(),
-    db.from("platform_fee_payments").select("campaign_id,status").eq("advertiser_id",currentUser.id)
+    db.from("platform_fee_payments").select("campaign_id,status,created_at").eq("advertiser_id",currentUser.id).order("created_at",{ascending:false})
   ]);
   const feeStatus = new Map((feePayments || []).map(f => [f.campaign_id,f.status]));
   const campaignHtml = (campaigns || []).map(c => {
