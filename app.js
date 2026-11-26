@@ -41,6 +41,7 @@ function setAuthMode(mode) {
   $("authName").required = mode === "signup";
   $("authRole").required = mode === "signup";
   $("authCountry").required = mode === "signup";
+  $("authLegal").required = mode === "signup";
   $("authPassword").autocomplete = mode === "signup" ? "new-password" : "current-password";
   $("authSubmit").innerHTML = mode === "signup" ? 'Créer mon compte <span>→</span>' : 'Me connecter <span>→</span>';
   showMessage("authMessage", mode === "signup"
