@@ -845,3 +845,21 @@ begin
   return new;
 end;
 $$;
+
+
+
+-- Permit a new fee-proof submission after a rejection, but never allow duplicate pending/approved payments.
+alter table public.platform_fee_payments drop constraint if exists platform_fee_payments_campaign_id_key;
+drop policy if exists "fee_payments_insert_owner" on public.platform_fee_payments;
+create policy "fee_payments_insert_owner" on public.platform_fee_payments
+for insert to authenticated
+with check (
+  advertiser_id=(select auth.uid()) and status='submitted' and proof_reference is not null
+  and exists (select 1 from public.campaigns c where c.id=campaign_id and c.advertiser_id=(select auth.uid())
+    and c.status='pending_fee_payment' and c.service_fee=amount)
+  and not exists (select 1 from public.platform_fee_payments fp where fp.campaign_id=platform_fee_payments.campaign_id
+    and fp.status in ('submitted','approved'))
+  and exists (select 1 from storage.objects o where o.bucket_id='afriareach-proofs' and o.name=proof_reference
+    and (storage.foldername(o.name))[1]='fees' and (storage.foldername(o.name))[2]=campaign_id::text
+    and (storage.foldername(o.name))[3]=(select auth.uid())::text)
+);
