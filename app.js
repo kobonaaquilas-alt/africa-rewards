@@ -190,7 +190,10 @@ async function updatePayout(id, changes) {
 }
 
 async function renderAdvertiserDashboard(root) {
-  const {data:campaigns,error} = await db.from("campaigns").select("*").eq("advertiser_id",currentUser.id).order("created_at",{ascending:false});
+  const [{data:campaigns,error},{data:payouts}] = await Promise.all([
+    db.from("campaigns").select("*").eq("advertiser_id",currentUser.id).order("created_at",{ascending:false}),
+    db.from("participant_payouts").select("id,amount,status,created_at").eq("advertiser_id",currentUser.id).order("created_at",{ascending:false}).limit(30)
+  ]);
   root.innerHTML = `
     <div class="member-summary"><b>Mes campagnes</b><span>${campaigns?.length || 0} campagne(s)</span></div>
     <form id="campaignForm" class="campaign-form">
@@ -206,8 +209,11 @@ async function renderAdvertiserDashboard(root) {
     </form>
     <div class="member-list">${error ? '<p class="empty-state">Impossible de charger vos campagnes.</p>' : (campaigns || []).map(c => `
       <article class="member-item"><div><span class="status-pill">${escapeHtml(c.status)}</span><h4>${escapeHtml(c.title)}</h4><small>Budget participants : ${money(c.participant_budget)} · Frais AfriReach : ${money(c.service_fee)}</small></div><button class="mini-button" data-view-apps="${c.id}">Candidatures</button></article>`).join("") || '<p class="empty-state">Vous n'avez pas encore créé de campagne.</p>'}</div>
-    <div id="campaignApplications"></div>`;
+    <div id="campaignApplications"></div>
+    <h4 class="subheading">Paiements directs aux participants</h4>
+    <div class="member-list">${(payouts || []).map(p => `<article class="member-item compact"><div><b>${money(p.amount)}</b><small>${escapeHtml(p.status)}</small></div>${p.status === "awaiting_advertiser_payment" ? '<button class="mini-button" data-mark-paid="' + p.id + '">J’ai effectué le transfert</button>' : '<span class="status-pill">' + escapeHtml(p.status) + '</span>'}</article>`).join("") || '<p class="empty-state">Aucun paiement à effectuer.</p>'}</div>`;
   $("campaignForm")?.addEventListener("submit", createCampaign);
+  root.querySelectorAll("[data-mark-paid]").forEach(b => b.addEventListener("click", () => markPayoutPaid(b.dataset.markPaid)));
   root.querySelectorAll("[data-view-apps]").forEach(b => b.addEventListener("click", () => loadCampaignApplications(b.dataset.viewApps)));
 }
 
@@ -247,6 +253,13 @@ async function loadCampaignApplications(campaignId) {
   panel.querySelectorAll("[data-review]").forEach(b => b.addEventListener("click", () => reviewApplication(b.dataset.review,b.dataset.status,campaignId)));
   panel.querySelectorAll("[data-proof-open]").forEach(b => b.addEventListener("click", () => openProof(b.dataset.proofOpen)));
   panel.querySelectorAll("[data-create-payout]").forEach(b => b.addEventListener("click", () => createPayout(b.dataset.createPayout,campaignId,b.dataset.participant)));
+}
+
+async function markPayoutPaid(id) {
+  const {error} = await db.from("participant_payouts").update({status:"marked_paid",marked_paid_at:new Date().toISOString()}).eq("id",id);
+  if (error) showMessage("dashboardMessage",error.message,true);
+  else showMessage("dashboardMessage","Paiement marqué comme effectué. Le participant doit confirmer la réception.");
+  await renderDashboard();
 }
 
 async function reviewApplication(id,status,campaignId) {
