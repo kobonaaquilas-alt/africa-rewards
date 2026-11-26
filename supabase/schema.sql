@@ -706,3 +706,90 @@ drop trigger if exists audit_payout_admin_updates on public.participant_payouts;
 create trigger audit_payout_admin_updates after update on public.participant_payouts for each row execute function private.write_admin_audit_log();
 drop trigger if exists audit_profile_admin_updates on public.profiles;
 create trigger audit_profile_admin_updates after update on public.profiles for each row execute function private.write_admin_audit_log();
+
+
+
+-- Admin-configurable transfer and support details for AfriReach.
+create table if not exists public.platform_settings (
+  id boolean primary key default true check (id = true),
+  fee_payment_phone text,
+  fee_payment_operator text,
+  fee_instructions text,
+  support_email text,
+  support_phone text,
+  updated_at timestamptz not null default now()
+);
+insert into public.platform_settings (id) values (true) on conflict (id) do nothing;
+alter table public.platform_settings enable row level security;
+drop policy if exists "platform_settings_read_authenticated" on public.platform_settings;
+create policy "platform_settings_read_authenticated" on public.platform_settings for select to authenticated using (true);
+drop policy if exists "platform_settings_admin_update" on public.platform_settings;
+create policy "platform_settings_admin_update" on public.platform_settings for update to authenticated
+using ((select private.is_platform_admin())) with check ((select private.is_platform_admin()));
+revoke insert, delete on public.platform_settings from anon, authenticated;
+revoke update on public.platform_settings from anon, authenticated;
+grant select on public.platform_settings to authenticated;
+grant update (fee_payment_phone, fee_payment_operator, fee_instructions, support_email, support_phone, updated_at) on public.platform_settings to authenticated;
+
+drop policy if exists "afriareach_proofs_upload_own" on storage.objects;
+create policy "afriareach_proofs_upload_own" on storage.objects for insert to authenticated
+with check (
+  bucket_id = 'afriareach-proofs' and (
+    ((storage.foldername(name))[1] = (select auth.uid())::text
+      and (storage.foldername(name))[2] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+      and exists (select 1 from public.campaign_applications a where a.id::text=(storage.foldername(name))[2]
+        and a.participant_id=(select auth.uid()) and a.status='accepted'))
+    or
+    ((storage.foldername(name))[1] = 'fees'
+      and (storage.foldername(name))[2] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+      and (storage.foldername(name))[3] = (select auth.uid())::text
+      and exists (select 1 from public.campaigns c where c.id::text=(storage.foldername(name))[2]
+        and c.advertiser_id=(select auth.uid()) and c.status='pending_fee_payment'))
+  )
+);
+drop policy if exists "afriareach_proofs_read_parties" on storage.objects;
+create policy "afriareach_proofs_read_parties" on storage.objects for select to authenticated
+using (
+  bucket_id='afriareach-proofs' and (
+    (storage.foldername(name))[1]=(select auth.uid())::text
+    or (select private.is_platform_admin())
+    or exists (select 1 from public.campaign_applications a join public.campaigns c on c.id=a.campaign_id
+      where a.id::text=(storage.foldername(name))[2] and c.advertiser_id=(select auth.uid()))
+    or ((storage.foldername(name))[1]='fees' and (storage.foldername(name))[3]=(select auth.uid())::text
+      and exists (select 1 from public.campaigns c where c.id::text=(storage.foldername(name))[2]
+        and c.advertiser_id=(select auth.uid())))
+  )
+);
+drop policy if exists "fee_payments_insert_owner" on public.platform_fee_payments;
+create policy "fee_payments_insert_owner" on public.platform_fee_payments for insert to authenticated
+with check (
+  advertiser_id=(select auth.uid()) and status='submitted' and proof_reference is not null
+  and exists (select 1 from public.campaigns c where c.id=campaign_id and c.advertiser_id=(select auth.uid())
+    and c.status='pending_fee_payment' and c.service_fee=amount)
+  and exists (select 1 from storage.objects o where o.bucket_id='afriareach-proofs' and o.name=proof_reference
+    and (storage.foldername(o.name))[1]='fees' and (storage.foldername(o.name))[2]=campaign_id::text
+    and (storage.foldername(o.name))[3]=(select auth.uid())::text)
+);
+
+create or replace function private.touch_platform_settings()
+returns trigger language plpgsql security invoker set search_path = ''
+as $$ begin new.updated_at := now(); return new; end; $$;
+revoke all on function private.touch_platform_settings() from public, anon, authenticated;
+drop trigger if exists touch_platform_settings_updated_at on public.platform_settings;
+create trigger touch_platform_settings_updated_at before update on public.platform_settings for each row execute function private.touch_platform_settings();
+
+create or replace function private.log_platform_settings_update()
+returns trigger language plpgsql security definer set search_path = ''
+as $$
+declare actor uuid := (select auth.uid());
+begin
+  if actor is not null and (select private.is_platform_admin()) then
+    insert into public.admin_audit_log(admin_id,action,entity_type,entity_id,details)
+    values(actor,'platform_settings.update','platform_settings',null,jsonb_build_object('updated_at',new.updated_at));
+  end if;
+  return new;
+end;
+$$;
+revoke all on function private.log_platform_settings_update() from public, anon, authenticated;
+drop trigger if exists audit_platform_settings_update on public.platform_settings;
+create trigger audit_platform_settings_update after update on public.platform_settings for each row execute function private.log_platform_settings_update();
