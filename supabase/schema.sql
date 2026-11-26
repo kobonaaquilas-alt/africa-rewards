@@ -294,3 +294,140 @@ grant select, insert on public.participant_payouts to authenticated;
 grant update (status, advertiser_proof_reference, marked_paid_at, participant_confirmed_at, dispute_note) on public.participant_payouts to authenticated;
 grant select on public.platform_admins to authenticated;
 grant select on public.admin_audit_log to authenticated;
+
+
+-- Defense in depth: RLS controls rows; this trigger also protects sensitive columns.
+create or replace function private.guard_business_updates()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  actor uuid := (select auth.uid());
+  admin boolean := (select private.is_platform_admin());
+  campaign_owner uuid;
+begin
+  if admin then
+    return new;
+  end if;
+
+  if tg_table_name = 'profiles' then
+    if new.id is distinct from old.id
+      or new.account_type is distinct from old.account_type
+      or new.created_at is distinct from old.created_at then
+      raise exception 'Profile identity and account type are immutable by the user';
+    end if;
+    new.updated_at := now();
+    return new;
+  elsif tg_table_name = 'campaigns' then
+    if old.advertiser_id <> actor
+      or new.id is distinct from old.id
+      or new.advertiser_id is distinct from old.advertiser_id
+      or new.participant_budget is distinct from old.participant_budget
+      or new.service_fee is distinct from old.service_fee
+      or new.currency is distinct from old.currency
+      or new.created_at is distinct from old.created_at then
+      raise exception 'Campaign contains fields that the advertiser cannot change';
+    end if;
+    if old.status not in ('draft','pending_fee_payment')
+      or new.status not in ('draft','pending_fee_payment','cancelled') then
+      raise exception 'This campaign can no longer be edited by the advertiser';
+    end if;
+    new.updated_at := now();
+    return new;
+  elsif tg_table_name = 'platform_fee_payments' then
+    raise exception 'Only platform administrators can review service-fee payments';
+  elsif tg_table_name = 'campaign_applications' then
+    if new.id is distinct from old.id
+      or new.campaign_id is distinct from old.campaign_id
+      or new.participant_id is distinct from old.participant_id
+      or new.applied_at is distinct from old.applied_at then
+      raise exception 'Application identity fields are immutable';
+    end if;
+    select c.advertiser_id into campaign_owner
+      from public.campaigns c where c.id = old.campaign_id;
+    if old.participant_id = actor then
+      if new.status not in ('submitted','withdrawn')
+        or new.reviewed_at is distinct from old.reviewed_at then
+        raise exception 'Participants may only submit proof or withdraw';
+      end if;
+    elsif campaign_owner = actor then
+      if new.status not in ('accepted','rejected','approved')
+        or new.submission_note is distinct from old.submission_note
+        or new.proof_reference is distinct from old.proof_reference
+        or new.submitted_at is distinct from old.submitted_at then
+        raise exception 'Advertisers may only review applications';
+      end if;
+    else
+      raise exception 'Not authorized to update this application';
+    end if;
+    return new;
+  elsif tg_table_name = 'participant_payouts' then
+    if new.id is distinct from old.id
+      or new.application_id is distinct from old.application_id
+      or new.campaign_id is distinct from old.campaign_id
+      or new.advertiser_id is distinct from old.advertiser_id
+      or new.participant_id is distinct from old.participant_id
+      or new.amount is distinct from old.amount
+      or new.currency is distinct from old.currency
+      or new.payment_method is distinct from old.payment_method
+      or new.created_at is distinct from old.created_at then
+      raise exception 'Payout identity and amount fields are immutable';
+    end if;
+    if old.advertiser_id = actor then
+      if new.status <> 'marked_paid'
+        or new.participant_confirmed_at is distinct from old.participant_confirmed_at
+        or new.dispute_note is distinct from old.dispute_note then
+        raise exception 'Advertisers may only mark a direct transfer as paid';
+      end if;
+    elsif old.participant_id = actor then
+      if old.status <> 'marked_paid'
+        or new.status not in ('confirmed_by_participant','disputed')
+        or new.advertiser_proof_reference is distinct from old.advertiser_proof_reference
+        or new.marked_paid_at is distinct from old.marked_paid_at then
+        raise exception 'Participants may only confirm or dispute a marked payment';
+      end if;
+    else
+      raise exception 'Not authorized to update this payout';
+    end if;
+    return new;
+  end if;
+
+  raise exception 'Unsupported update target';
+end;
+$$;
+
+revoke all on function private.guard_business_updates() from public, anon, authenticated;
+
+drop trigger if exists guard_profiles_updates on public.profiles;
+create trigger guard_profiles_updates before update on public.profiles
+for each row execute function private.guard_business_updates();
+
+drop trigger if exists guard_campaigns_updates on public.campaigns;
+create trigger guard_campaigns_updates before update on public.campaigns
+for each row execute function private.guard_business_updates();
+
+drop trigger if exists guard_fee_payment_updates on public.platform_fee_payments;
+create trigger guard_fee_payment_updates before update on public.platform_fee_payments
+for each row execute function private.guard_business_updates();
+
+drop trigger if exists guard_application_updates on public.campaign_applications;
+create trigger guard_application_updates before update on public.campaign_applications
+for each row execute function private.guard_business_updates();
+
+drop trigger if exists guard_payout_updates on public.participant_payouts;
+create trigger guard_payout_updates before update on public.participant_payouts
+for each row execute function private.guard_business_updates();
+
+-- Advertisers can only edit campaign content and scheduling, never identity or fee fields.
+revoke update on public.campaigns from anon, authenticated;
+grant update (title, description, objective, country, participant_reward, participant_slots, start_at, end_at, status, rules_acknowledged, updated_at) on public.campaigns to authenticated;
+
+-- Only admins can update fee-review records; normal users can submit proof once.
+revoke update on public.platform_fee_payments from anon, authenticated;
+grant update (status, reviewed_by, reviewed_at, review_note) on public.platform_fee_payments to authenticated;
+
+-- Applications have narrowly scoped editable fields; trigger checks who may change them.
+revoke update on public.campaign_applications from anon, authenticated;
+grant update (status, submission_note, proof_reference, submitted_at, reviewed_at) on public.campaign_applications to authenticated;
