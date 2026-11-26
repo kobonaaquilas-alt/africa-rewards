@@ -378,10 +378,11 @@ async function createPayout(applicationId,campaignId,participantId) {
 }
 
 async function renderAdminDashboard(root) {
-  const [{data:campaigns},{data:fees},{data:settings}] = await Promise.all([
+  const [{data:campaigns},{data:fees},{data:settings},{data:profiles}] = await Promise.all([
     db.from("campaigns").select("*").order("created_at",{ascending:false}).limit(50),
     db.from("platform_fee_payments").select("*").order("created_at",{ascending:false}).limit(50),
-    db.from("platform_settings").select("*").eq("id",true).maybeSingle()
+    db.from("platform_settings").select("*").eq("id",true).maybeSingle(),
+    db.from("profiles").select("id,display_name,country,account_type,created_at").order("created_at",{ascending:false}).limit(100)
   ]);
   root.innerHTML =
     '<div class="member-summary"><b>Administration AfriReach</b><span>Modération et vérification</span></div>' +
@@ -392,6 +393,12 @@ async function renderAdminDashboard(root) {
     '<label>E-mail support<input name="support_email" type="email" value="' + escapeHtml(settings?.support_email || "") + '" placeholder="support@exemple.com"></label>' +
     '<label>Téléphone support<input name="support_phone" value="' + escapeHtml(settings?.support_phone || "") + '" placeholder="Contact support"></label>' +
     '<button class="mini-button" type="submit">Enregistrer les coordonnées</button></form>' +
+    '<h4 class="subheading">Comptes annonceurs</h4><div class="member-list">' +
+    ((profiles || []).map(p => '<article class="member-item compact"><div><b>' + escapeHtml(p.display_name) + '</b><small>' +
+      escapeHtml(p.country) + ' · ' + escapeHtml(p.account_type) + ' · ' + escapeHtml(p.id.slice(0,8)) +
+      '</small></div>' + (p.account_type === "advertiser" ? '<span class="status-pill">Annonceur actif</span>' :
+      '<button class="mini-button" data-assign-advertiser="' + p.id + '">Activer annonceur</button>') + '</article>').join("") ||
+      '<p class="empty-state">Aucun compte.</p>') + '</div>' +
     '<h4 class="subheading">Campagnes à examiner</h4><div class="member-list">' +
     ((campaigns || []).map(c => '<article class="member-item compact"><div><b>' + escapeHtml(c.title) + '</b><small>' +
       escapeHtml(c.status) + ' · Frais : ' + money(c.service_fee) + '</small></div><div class="inline-actions">' +
@@ -405,9 +412,17 @@ async function renderAdminDashboard(root) {
       (f.status === "submitted" ? '<button class="mini-button" data-fee="' + f.id + '" data-fee-status="approved">Approuver</button><button class="mini-button secondary" data-fee="' + f.id + '" data-fee-status="rejected">Refuser</button>' : '') +
       '</div></article>').join("") || '<p class="empty-state">Aucune preuve de paiement reçue.</p>') + '</div>';
   $("settingsForm")?.addEventListener("submit",savePlatformSettings);
+  root.querySelectorAll("[data-assign-advertiser]").forEach(b => b.addEventListener("click", () => assignAdvertiser(b.dataset.assignAdvertiser)));
   root.querySelectorAll("[data-campaign-status]").forEach(b => b.addEventListener("click", () => updateCampaignStatus(b.dataset.campaignStatus,b.dataset.status)));
   root.querySelectorAll("[data-fee]").forEach(b => b.addEventListener("click", () => reviewFee(b.dataset.fee,b.dataset.feeStatus)));
   root.querySelectorAll("[data-proof-open]").forEach(b => b.addEventListener("click", () => openProof(b.dataset.proofOpen)));
+}
+
+async function assignAdvertiser(userId) {
+  const {error} = await db.from("profiles").update({account_type:"advertiser",updated_at:new Date().toISOString()}).eq("id",userId);
+  if (error) showMessage("dashboardMessage",error.message,true);
+  else showMessage("dashboardMessage","Le compte a été activé comme annonceur.");
+  await renderDashboard();
 }
 
 async function savePlatformSettings(event) {
