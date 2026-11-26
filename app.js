@@ -189,11 +189,16 @@ async function uploadApplicationProof(applicationId, file) {
 async function loadParticipantPayouts() {
   const target = $("myPayouts");
   if (!target) return;
-  const {data,error} = await db.from("participant_payouts").select("id,amount,currency,status,marked_paid_at").eq("participant_id",currentUser.id).order("created_at",{ascending:false});
-  target.innerHTML = error ? '<p class="empty-state">Historique indisponible.</p>' : (data || []).map(p => `
-    <article class="member-item compact"><div><b>${money(p.amount)}</b><small>${escapeHtml(p.status)}</small></div>${p.status === "marked_paid" ? `<div class="inline-actions"><button class="mini-button" data-confirm-payout="${p.id}">Confirmer reçu</button><button class="mini-button secondary" data-dispute-payout="${p.id}">Signaler</button></div>` : '<span class="status-pill">' + escapeHtml(p.status) + '</span>'}</article>`).join("") || '<p class="empty-state">Aucun paiement enregistré.</p>';
+  const {data,error} = await db.from("participant_payouts").select("id,amount,currency,status,marked_paid_at,advertiser_proof_reference").eq("participant_id",currentUser.id).order("created_at",{ascending:false});
+  target.innerHTML = error ? '<p class="empty-state">Historique indisponible.</p>' : (data || []).map(p =>
+    '<article class="member-item compact"><div><b>' + money(p.amount) + '</b><small>' + escapeHtml(p.status) + '</small></div><div class="inline-actions">' +
+    (p.advertiser_proof_reference ? '<button class="mini-button secondary" data-payout-proof-open="' + escapeHtml(p.advertiser_proof_reference) + '">Voir preuve</button>' : '') +
+    (p.status === "marked_paid" ? '<button class="mini-button" data-confirm-payout="' + p.id + '">Confirmer reçu</button><button class="mini-button secondary" data-dispute-payout="' + p.id + '">Signaler</button>' : '<span class="status-pill">' + escapeHtml(p.status) + '</span>') +
+    '</div></article>'
+  ).join("") || '<p class="empty-state">Aucun paiement enregistré.</p>';
   target.querySelectorAll("[data-confirm-payout]").forEach(b => b.addEventListener("click", () => updatePayout(b.dataset.confirmPayout,{status:"confirmed_by_participant",participant_confirmed_at:new Date().toISOString()})));
   target.querySelectorAll("[data-dispute-payout]").forEach(b => b.addEventListener("click", () => updatePayout(b.dataset.disputePayout,{status:"disputed",dispute_note:"Le participant signale ne pas avoir reçu le paiement."})));
+  target.querySelectorAll("[data-payout-proof-open]").forEach(b => b.addEventListener("click", () => openProof(b.dataset.payoutProofOpen)));
 }
 
 async function updatePayout(id, changes) {
@@ -234,7 +239,7 @@ async function renderAdvertiserDashboard(root) {
     '<article class="member-item compact"><div><b>' + money(p.amount) + '</b><small>' +
     escapeHtml(p.status) + '</small></div>' +
     (p.status === "awaiting_advertiser_payment"
-      ? '<button class="mini-button" data-mark-paid="' + p.id + '">J’ai effectué le transfert</button>'
+      ? '<form class="payout-proof-form" data-payout-proof="' + p.id + '"><input name="proof" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required><button class="mini-button" type="submit">Preuve + marquer payé</button></form>'
       : '<span class="status-pill">' + escapeHtml(p.status) + '</span>') + '</article>'
   ).join("");
   root.innerHTML =
@@ -254,7 +259,7 @@ async function renderAdvertiserDashboard(root) {
     '<div id="campaignApplications"></div><h4 class="subheading">Paiements directs aux participants</h4>' +
     '<div class="member-list">' + (payoutHtml || '<p class="empty-state">Aucun paiement à effectuer.</p>') + '</div>';
   $("campaignForm")?.addEventListener("submit", createCampaign);
-  root.querySelectorAll("[data-mark-paid]").forEach(b => b.addEventListener("click", () => markPayoutPaid(b.dataset.markPaid)));
+  root.querySelectorAll("[data-payout-proof]").forEach(form => form.addEventListener("submit", e => submitPayoutProof(e,form.dataset.payoutProof)));
   root.querySelectorAll("[data-view-apps]").forEach(b => b.addEventListener("click", () => loadCampaignApplications(b.dataset.viewApps)));
   root.querySelectorAll("[data-start-fee]").forEach(b => b.addEventListener("click", () => startFeePayment(b.dataset.startFee)));
   root.querySelectorAll("[data-fee-form]").forEach(form => form.addEventListener("submit", e => submitFeePayment(e,form.dataset.feeForm)));
@@ -329,10 +334,21 @@ async function loadCampaignApplications(campaignId) {
   panel.querySelectorAll("[data-create-payout]").forEach(b => b.addEventListener("click", () => createPayout(b.dataset.createPayout,campaignId,b.dataset.participant)));
 }
 
-async function markPayoutPaid(id) {
-  const {error} = await db.from("participant_payouts").update({status:"marked_paid",marked_paid_at:new Date().toISOString()}).eq("id",id);
-  if (error) showMessage("dashboardMessage",error.message,true);
-  else showMessage("dashboardMessage","Paiement marqué comme effectué. Le participant doit confirmer la réception.");
+async function submitPayoutProof(event,id) {
+  event.preventDefault();
+  const file = event.currentTarget.elements.proof.files?.[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) return showMessage("dashboardMessage","Fichier trop volumineux : maximum 5 Mo.",true);
+  if (!["image/jpeg","image/png","image/webp","application/pdf"].includes(file.type)) return showMessage("dashboardMessage","Format refusé. Utilisez JPG, PNG, WEBP ou PDF.",true);
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+  const path = "payouts/" + id + "/" + currentUser.id + "/" + Date.now() + "-" + safeName;
+  const {error:uploadError} = await db.storage.from("afriareach-proofs").upload(path,file,{upsert:false,contentType:file.type});
+  if (uploadError) return showMessage("dashboardMessage",uploadError.message,true);
+  const {error} = await db.from("participant_payouts").update({
+    status:"marked_paid",marked_paid_at:new Date().toISOString(),advertiser_proof_reference:path
+  }).eq("id",id);
+  if (error) return showMessage("dashboardMessage",error.message,true);
+  showMessage("dashboardMessage","Preuve de transfert envoyée. Le participant doit confirmer la réception.");
   await renderDashboard();
 }
 
