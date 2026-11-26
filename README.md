@@ -1,16 +1,24 @@
 # AfriReach
 
-Plateforme en préparation mettant en relation annonceurs, créateurs et participants autour de campagnes publicitaires transparentes.
+AfriReach est une plateforme indépendante qui met en relation annonceurs, créateurs et participants autour de campagnes transparentes.
 
 ## État actuel
-Cette première livraison est une **vitrine responsive installable (PWA)**. Elle ne crée pas encore de comptes, ne collecte pas de données, ne publie pas de campagnes et ne traite aucun paiement. Le formulaire de préinscription est volontairement non connecté.
+- Vitrine responsive et installable (PWA).
+- Inscription et connexion Supabase.
+- Espaces participant/créateur et annonceur.
+- Création de campagnes en brouillon, calcul serveur des frais de service.
+- Candidatures, preuves privées et suivi des paiements directs.
+- Espace de modération administrateur et journal d'audit.
+- Base Supabase indépendante, avec RLS et stockage privé.
 
-## Principes produit
-- Pas d'achat d'abonnés, de likes, de commentaires ou de vues artificiels.
-- Pas de mission qui manipule les statistiques ou enfreint les règles des plateformes tierces.
-- Paiements manuels uniquement dans le pilote, après validation des preuves.
-- Les paiements entre annonceur et participant restent directs ; AfriReach ne conserve pas les fonds des participants.
-- Les moyens Flooz, TMoney et bancaires restent affichés comme options futures inactives.
+Les paiements de frais à AfriReach ne sont pas encore ouverts : les coordonnées officielles de réception ne sont pas configurées. Les campagnes ne peuvent donc pas être activées en production à ce stade.
+
+## Principes
+- Aucun achat artificiel d'abonnés, de likes, de commentaires ou de vues.
+- Aucune mission qui manipule les statistiques ou enfreint les conditions des plateformes tierces.
+- Frais de service pilote : 10 % du budget participants, minimum 100 XOF, calculés côté base.
+- Récompenses transférées directement de l'annonceur au participant ; AfriReach ne conserve pas les fonds des récompenses.
+- Flooz, TMoney et paiements bancaires restent inactifs.
 
 ## Déploiement Cloudflare Pages
 - Framework preset : None
@@ -18,16 +26,9 @@ Cette première livraison est une **vitrine responsive installable (PWA)**. Elle
 - Build output directory : /
 - Root directory : /
 
-Connecter ce dépôt à Cloudflare Pages. Pour une publication de fichiers statiques, aucune compilation n'est requise.
+Connecter ce dépôt à Cloudflare Pages. Aucune compilation n'est nécessaire.
 
-## Prochaines étapes techniques
-1. Créer un projet Supabase distinct pour AfriReach.
-2. Lire `supabase/SETUP.md`, puis exécuter `supabase/schema.sql` uniquement dans le nouveau projet AfriReach.
-3. Configurer l'authentification, le premier administrateur et les rôles selon `supabase/SETUP.md`.
+## Configuration
+Lire supabase/SETUP.md pour le domaine Auth, le premier administrateur, les rôles, les règles financières et les vérifications de sécurité.
 
-Le schéma contient des protections supplémentaires contre la modification frauduleuse de champs sensibles, mais il n'a pas encore été exécuté ni testé sur une base réelle. Il ne doit pas être considéré comme validé pour la production.
-4. Connecter le frontend à Supabase via les variables publiques du projet (URL et anon/publishable key uniquement).
-5. Construire l'espace membre, les campagnes, les preuves de frais de service et le suivi des paiements directs.
-6. Effectuer les vérifications de sécurité, de conformité et de fonctionnement avant toute campagne réelle.
-
-Ne jamais placer la clé `service_role`, un secret ou un mot de passe dans le frontend ou dans Git.
+Ne jamais placer une clé service_role, un secret ou un mot de passe dans le frontend ou dans Git.
