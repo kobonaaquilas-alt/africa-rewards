@@ -8,10 +8,10 @@ AfriReach est une plateforme indépendante qui met en relation annonceurs, créa
 - Espaces participant/créateur et annonceur.
 - Création de campagnes en brouillon, calcul serveur des frais de service.
 - Candidatures, preuves privées et suivi des paiements directs.
-- Espace de modération administrateur et journal d'audit.
+- Espace de modération administrateur, paramètres de paiement et journal d'audit.
 - Base Supabase indépendante, avec RLS et stockage privé.
 
-Les paiements de frais à AfriReach ne sont pas encore ouverts : les coordonnées officielles de réception ne sont pas configurées. Les campagnes ne peuvent donc pas être activées en production à ce stade.
+Les paiements de frais à AfriReach ne sont pas encore ouverts : le premier administrateur doit configurer les coordonnées officielles de réception. Les campagnes ne peuvent donc pas être activées en production à ce stade.
 
 ## Principes
 - Aucun achat artificiel d'abonnés, de likes, de commentaires ou de vues.
