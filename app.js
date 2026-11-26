@@ -66,6 +66,7 @@ async function handleAuth(event) {
         options: {emailRedirectTo: window.location.origin, data: {
           display_name: String(form.get("display_name") || "").trim(),
           account_type: form.get("account_type") === "creator" ? "creator" : "participant",
+          legal_acceptance: $("authLegal").checked,
           country: String(form.get("country") || "Togo")
         }}
       });
