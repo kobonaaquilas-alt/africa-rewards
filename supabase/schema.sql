@@ -863,3 +863,96 @@ with check (
     and (storage.foldername(o.name))[1]='fees' and (storage.foldername(o.name))[2]=campaign_id::text
     and (storage.foldername(o.name))[3]=(select auth.uid())::text)
 );
+
+
+
+-- Advertiser transfer proofs are stored privately under payouts/<payout UUID>/<advertiser UUID>/<file>.
+drop policy if exists "afriareach_proofs_upload_own" on storage.objects;
+create policy "afriareach_proofs_upload_own" on storage.objects for insert to authenticated
+with check (bucket_id='afriareach-proofs' and (
+  ((storage.foldername(name))[1]=(select auth.uid())::text
+    and (storage.foldername(name))[2] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    and exists (select 1 from public.campaign_applications a where a.id::text=(storage.foldername(name))[2] and a.participant_id=(select auth.uid()) and a.status='accepted'))
+  or ((storage.foldername(name))[1]='fees'
+    and (storage.foldername(name))[2] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    and (storage.foldername(name))[3]=(select auth.uid())::text
+    and exists (select 1 from public.campaigns c where c.id::text=(storage.foldername(name))[2] and c.advertiser_id=(select auth.uid()) and c.status='pending_fee_payment'))
+  or ((storage.foldername(name))[1]='payouts'
+    and (storage.foldername(name))[2] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    and (storage.foldername(name))[3]=(select auth.uid())::text
+    and exists (select 1 from public.participant_payouts p where p.id::text=(storage.foldername(name))[2] and p.advertiser_id=(select auth.uid()) and p.status='awaiting_advertiser_payment'))
+));
+drop policy if exists "afriareach_proofs_read_parties" on storage.objects;
+create policy "afriareach_proofs_read_parties" on storage.objects for select to authenticated
+using (bucket_id='afriareach-proofs' and (
+  (storage.foldername(name))[1]=(select auth.uid())::text
+  or (select private.is_platform_admin())
+  or exists (select 1 from public.campaign_applications a join public.campaigns c on c.id=a.campaign_id where a.id::text=(storage.foldername(name))[2] and c.advertiser_id=(select auth.uid()))
+  or ((storage.foldername(name))[1]='fees' and (storage.foldername(name))[3]=(select auth.uid())::text
+    and exists (select 1 from public.campaigns c where c.id::text=(storage.foldername(name))[2] and c.advertiser_id=(select auth.uid())))
+  or ((storage.foldername(name))[1]='payouts'
+    and exists (select 1 from public.participant_payouts p where p.id::text=(storage.foldername(name))[2]
+      and (p.advertiser_id=(select auth.uid()) or p.participant_id=(select auth.uid()))))
+));
+drop policy if exists "payouts_insert_advertiser" on public.participant_payouts;
+create policy "payouts_insert_advertiser" on public.participant_payouts for insert to authenticated
+with check (
+  advertiser_id=(select auth.uid()) and status='awaiting_advertiser_payment' and advertiser_proof_reference is null
+  and exists (select 1 from public.campaigns c where c.id=campaign_id and c.advertiser_id=(select auth.uid()))
+  and exists (select 1 from public.campaign_applications a where a.id=application_id and a.campaign_id=participant_payouts.campaign_id
+    and a.participant_id=participant_payouts.participant_id and a.status='approved')
+  and exists (select 1 from public.campaigns c where c.id=campaign_id and c.participant_reward=amount)
+);
+
+create or replace function private.guard_business_updates()
+returns trigger language plpgsql security invoker set search_path = ''
+as $$
+declare actor uuid := (select auth.uid()); admin boolean := (select private.is_platform_admin()); campaign_owner uuid;
+begin
+  if admin then return new; end if;
+  if tg_table_name='profiles' then
+    if new.id is distinct from old.id or new.account_type is distinct from old.account_type or new.created_at is distinct from old.created_at then raise exception 'Profile identity and account type are immutable by the user'; end if;
+    new.updated_at:=now(); return new;
+  elsif tg_table_name='campaigns' then
+    if old.advertiser_id<>actor or new.id is distinct from old.id or new.advertiser_id is distinct from old.advertiser_id
+      or new.participant_budget is distinct from old.participant_budget or new.service_fee is distinct from old.service_fee
+      or new.currency is distinct from old.currency or new.created_at is distinct from old.created_at then raise exception 'Campaign contains fields that the advertiser cannot change'; end if;
+    if old.status not in ('draft','pending_fee_payment') or new.status not in ('draft','pending_fee_payment','cancelled') then raise exception 'This campaign can no longer be edited by the advertiser'; end if;
+    new.updated_at:=now(); return new;
+  elsif tg_table_name='platform_fee_payments' then raise exception 'Only platform administrators can review service-fee payments';
+  elsif tg_table_name='campaign_applications' then
+    if new.id is distinct from old.id or new.campaign_id is distinct from old.campaign_id or new.participant_id is distinct from old.participant_id or new.applied_at is distinct from old.applied_at then raise exception 'Application identity fields are immutable'; end if;
+    select c.advertiser_id into campaign_owner from public.campaigns c where c.id=old.campaign_id;
+    if old.participant_id=actor then
+      if new.status='submitted' then
+        if old.status<>'accepted' or new.proof_reference is null or new.submitted_at is null
+          or not exists (select 1 from storage.objects o where o.bucket_id='afriareach-proofs' and o.name=new.proof_reference and (storage.foldername(o.name))[1]=actor::text and (storage.foldername(o.name))[2]=old.id::text) then raise exception 'A valid private proof is required after acceptance'; end if;
+      elsif new.status='withdrawn' then
+        if old.status not in ('applied','accepted') or new.proof_reference is distinct from old.proof_reference or new.submission_note is distinct from old.submission_note or new.submitted_at is distinct from old.submitted_at then raise exception 'This application cannot be withdrawn now'; end if;
+      else raise exception 'Participants may only submit proof or withdraw'; end if;
+      if new.reviewed_at is distinct from old.reviewed_at then raise exception 'Participants cannot set review timestamps'; end if;
+    elsif campaign_owner=actor then
+      if not ((old.status='applied' and new.status in ('accepted','rejected')) or (old.status='submitted' and new.status in ('approved','rejected')))
+        or new.submission_note is distinct from old.submission_note or new.proof_reference is distinct from old.proof_reference or new.submitted_at is distinct from old.submitted_at then raise exception 'Advertisers may only review valid application states'; end if;
+    else raise exception 'Not authorized to update this application'; end if;
+    return new;
+  elsif tg_table_name='participant_payouts' then
+    if new.id is distinct from old.id or new.application_id is distinct from old.application_id or new.campaign_id is distinct from old.campaign_id
+      or new.advertiser_id is distinct from old.advertiser_id or new.participant_id is distinct from old.participant_id
+      or new.amount is distinct from old.amount or new.currency is distinct from old.currency or new.payment_method is distinct from old.payment_method
+      or new.created_at is distinct from old.created_at then raise exception 'Payout identity and amount fields are immutable'; end if;
+    if old.advertiser_id=actor then
+      if old.status<>'awaiting_advertiser_payment' or new.status<>'marked_paid' or new.participant_confirmed_at is distinct from old.participant_confirmed_at
+        or new.dispute_note is distinct from old.dispute_note or new.advertiser_proof_reference is null
+        or not exists (select 1 from storage.objects o where o.bucket_id='afriareach-proofs' and o.name=new.advertiser_proof_reference
+          and (storage.foldername(o.name))[1]='payouts' and (storage.foldername(o.name))[2]=old.id::text and (storage.foldername(o.name))[3]=actor::text) then
+        raise exception 'A private transfer proof is required before marking the payout paid'; end if;
+    elsif old.participant_id=actor then
+      if old.status<>'marked_paid' or new.status not in ('confirmed_by_participant','disputed')
+        or new.advertiser_proof_reference is distinct from old.advertiser_proof_reference or new.marked_paid_at is distinct from old.marked_paid_at then raise exception 'Participants may only confirm or dispute a marked payment'; end if;
+    else raise exception 'Not authorized to update this payout'; end if;
+    return new;
+  end if;
+  raise exception 'Unsupported update target';
+end;
+$$;
