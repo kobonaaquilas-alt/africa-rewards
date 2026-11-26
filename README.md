@@ -4,7 +4,8 @@ AfriReach est une plateforme indépendante qui met en relation annonceurs, créa
 
 ## État actuel
 - Vitrine responsive et installable (PWA).
-- Inscription et connexion Supabase.
+- Inscription et connexion Supabase, consentement légal et vérification d'âge minimum 18 ans.
+- Pages provisoires de conditions d'utilisation et confidentialité.
 - Espaces participant/créateur et annonceur.
 - Création de campagnes en brouillon, calcul serveur des frais de service.
 - Candidatures, preuves privées et suivi des paiements directs.
