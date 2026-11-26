@@ -956,3 +956,6 @@ begin
   raise exception 'Unsupported update target';
 end;
 $$;
+
+
+create index if not exists platform_fee_payments_campaign_status_idx on public.platform_fee_payments(campaign_id,status);
