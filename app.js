@@ -73,8 +73,8 @@ async function handleAuth(event) {
         showMessage("authMessage", "Compte créé. Ouverture de votre espace…");
         await loadMemberArea();
       } else {
-        showMessage("authMessage", "Compte créé. Vérifiez votre boîte e-mail pour confirmer votre adresse, puis connectez-vous.");
         setAuthMode("signin");
+        showMessage("authMessage", "Compte créé. Vérifiez votre boîte e-mail pour confirmer votre adresse, puis connectez-vous.");
       }
     } else {
       const {error} = await db.auth.signInWithPassword({email, password});
