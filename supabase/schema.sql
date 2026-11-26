@@ -50,7 +50,7 @@ create table if not exists public.campaigns (
   participant_reward numeric(12,2) not null check (participant_reward > 0),
   participant_slots integer not null check (participant_slots between 1 and 100000),
   participant_budget numeric(14,2) generated always as (participant_reward * participant_slots) stored,
-  service_fee numeric(14,2) not null check (service_fee >= 0),
+  service_fee numeric(14,2) not null check (service_fee >= 100),
   currency text not null default 'XOF' check (currency = 'XOF'),
   start_at timestamptz,
   end_at timestamptz,
@@ -177,7 +177,7 @@ for insert to authenticated
 with check (
   advertiser_id = (select auth.uid())
   and exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.account_type = 'advertiser')
-  and status in ('draft','pending_fee_payment')
+  and status = 'draft'
 );
 
 drop policy if exists "campaigns_update_owner_or_admin" on public.campaigns;
@@ -431,3 +431,36 @@ grant update (status, reviewed_by, reviewed_at, review_note) on public.platform_
 -- Applications have narrowly scoped editable fields; trigger checks who may change them.
 revoke update on public.campaign_applications from anon, authenticated;
 grant update (status, submission_note, proof_reference, submitted_at, reviewed_at) on public.campaign_applications to authenticated;
+
+
+-- Calculate the platform service fee on the database, never from a browser-supplied amount.
+-- Pricing for the pilot: 10% of the participant budget, minimum 100 XOF.
+create or replace function private.set_campaign_service_fee()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  if tg_op = 'INSERT' then
+    new.status := 'draft';
+    new.service_fee := greatest(100::numeric, round((new.participant_reward * new.participant_slots) * 0.10, 2));
+    return new;
+  end if;
+
+  if new.participant_reward is distinct from old.participant_reward
+    or new.participant_slots is distinct from old.participant_slots then
+    if old.status <> 'draft' then
+      raise exception 'Campaign budget and reward are locked after draft';
+    end if;
+    new.service_fee := greatest(100::numeric, round((new.participant_reward * new.participant_slots) * 0.10, 2));
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function private.set_campaign_service_fee() from public, anon, authenticated;
+drop trigger if exists set_campaign_service_fee on public.campaigns;
+create trigger set_campaign_service_fee
+before insert or update on public.campaigns
+for each row execute function private.set_campaign_service_fee();
