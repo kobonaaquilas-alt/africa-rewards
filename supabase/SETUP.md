@@ -4,10 +4,12 @@ Ce guide concerne exclusivement le projet Supabase AfriReach (jdzseeodhdzbqvvubt
 
 ## État de la base
 Le projet Supabase AfriReach est créé dans la région eu-west-1. Le schéma est appliqué et vérifié :
-- 7 tables métier, avec RLS activé.
+- 8 tables métier et de paramétrage, avec RLS activé.
 - Création automatique du profil après inscription.
 - Rôles publics limités à participant et creator ; rôle annonceur attribué après vérification.
-- Bucket privé afriareach-proofs pour les preuves (5 Mo max, JPEG/PNG/WEBP/PDF).
+- Bucket privé afriareach-proofs pour les preuves de missions et frais (5 Mo max, JPEG/PNG/WEBP/PDF).
+- Paramètres administrateur pour les coordonnées de réception des frais et le support.
+- Soumission de preuve de frais par annonceur et validation par administrateur.
 - Protections des transitions de campagnes, candidatures et paiements.
 - Journal d'audit des changements administrateur.
 - Contrôle de sécurité Supabase : aucune anomalie signalée.
@@ -43,7 +45,7 @@ Après vérification de l'entreprise ou du porteur de campagne, l'administrateur
 - Frais de service AfriReach : 10 % du budget des récompenses, avec un minimum de 100 XOF, calculés côté base de données.
 - Les frais de service sont payés à AfriReach et vérifiés par l'administration avant toute activation.
 - Les récompenses sont transférées directement par l'annonceur au participant ; AfriReach ne conserve pas ces fonds.
-- Les coordonnées de réception des frais AfriReach ne sont pas encore configurées. Aucun paiement de frais ne doit être demandé tant que les coordonnées officielles ne sont pas ajoutées.
+- Les coordonnées de réception des frais AfriReach restent à saisir par le premier administrateur dans son espace. Aucun paiement de frais ne doit être demandé tant que ces coordonnées officielles ne sont pas ajoutées.
 - Flooz, TMoney, cartes et banques restent inactifs.
 
 ## Contrôles avant lancement commercial
