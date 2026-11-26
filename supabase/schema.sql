@@ -444,7 +444,7 @@ as $$
 begin
   if tg_op = 'INSERT' then
     new.status := 'draft';
-    new.service_fee := greatest(100::numeric, round((new.participant_reward * new.participant_slots) * 0.10, 2));
+    new.service_fee := greatest(100::numeric, ceil((new.participant_reward * new.participant_slots) * 0.10));
     return new;
   end if;
 
@@ -453,7 +453,7 @@ begin
     if old.status <> 'draft' then
       raise exception 'Campaign budget and reward are locked after draft';
     end if;
-    new.service_fee := greatest(100::numeric, round((new.participant_reward * new.participant_slots) * 0.10, 2));
+    new.service_fee := greatest(100::numeric, ceil((new.participant_reward * new.participant_slots) * 0.10));
   end if;
   return new;
 end;
@@ -511,7 +511,7 @@ as $$
 begin
   if tg_op = 'INSERT' then
     new.status := 'draft';
-    new.service_fee := greatest(100::numeric, round((new.participant_reward * new.participant_slots) * 0.10, 2));
+    new.service_fee := greatest(100::numeric, ceil((new.participant_reward * new.participant_slots) * 0.10));
     return new;
   end if;
   if new.participant_reward is distinct from old.participant_reward
@@ -519,7 +519,7 @@ begin
     if old.status <> 'draft' then
       raise exception 'Campaign budget and reward are locked after draft';
     end if;
-    new.service_fee := greatest(100::numeric, round((new.participant_reward * new.participant_slots) * 0.10, 2));
+    new.service_fee := greatest(100::numeric, ceil((new.participant_reward * new.participant_slots) * 0.10));
   end if;
   if new.status = 'pending_review' and old.status is distinct from 'pending_review'
     and not exists (select 1 from public.platform_fee_payments fp where fp.campaign_id = new.id and fp.status = 'approved') then
