@@ -17,7 +17,7 @@ Les paiements de frais à AfriReach ne sont pas encore ouverts : le premier admi
 ## Principes
 - Aucun achat artificiel d'abonnés, de likes, de commentaires ou de vues.
 - Aucune mission qui manipule les statistiques ou enfreint les conditions des plateformes tierces.
-- Frais de service pilote : 10 % du budget participants, minimum 100 XOF, calculés côté base.
+- Frais de service pilote : 10 % du budget participants, arrondis au XOF supérieur, minimum 100 XOF, calculés côté base.
 - Récompenses transférées directement de l'annonceur au participant ; AfriReach ne conserve pas les fonds des récompenses.
 - Flooz, TMoney et paiements bancaires restent inactifs.
 
