@@ -464,3 +464,37 @@ drop trigger if exists set_campaign_service_fee on public.campaigns;
 create trigger set_campaign_service_fee
 before insert or update on public.campaigns
 for each row execute function private.set_campaign_service_fee();
+
+-- Performance indexes for foreign-key lookups.
+create index if not exists admin_audit_log_admin_id_idx on public.admin_audit_log(admin_id);
+create index if not exists participant_payouts_advertiser_id_idx on public.participant_payouts(advertiser_id);
+create index if not exists participant_payouts_campaign_id_idx on public.participant_payouts(campaign_id);
+create index if not exists platform_fee_payments_advertiser_id_idx on public.platform_fee_payments(advertiser_id);
+create index if not exists platform_fee_payments_reviewed_by_idx on public.platform_fee_payments(reviewed_by);
+
+-- Consolidate update policies to avoid redundant permissive policy evaluation.
+drop policy if exists "profiles_update_self" on public.profiles;
+drop policy if exists "profiles_admin_update" on public.profiles;
+create policy "profiles_update_self_or_admin" on public.profiles
+for update to authenticated
+using ((select auth.uid()) = id or (select private.is_platform_admin()))
+with check (
+  (select private.is_platform_admin())
+  or ((select auth.uid()) = id and account_type in ('participant','creator'))
+);
+
+drop policy if exists "payouts_update_advertiser" on public.participant_payouts;
+drop policy if exists "payouts_update_participant" on public.participant_payouts;
+drop policy if exists "payouts_update_admin" on public.participant_payouts;
+create policy "payouts_update_parties_or_admin" on public.participant_payouts
+for update to authenticated
+using (
+  (select private.is_platform_admin())
+  or advertiser_id = (select auth.uid())
+  or (participant_id = (select auth.uid()) and status = 'marked_paid')
+)
+with check (
+  (select private.is_platform_admin())
+  or (advertiser_id = (select auth.uid()) and status = 'marked_paid')
+  or (participant_id = (select auth.uid()) and status in ('confirmed_by_participant','disputed'))
+);
