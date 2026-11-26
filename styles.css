@@ -74,3 +74,7 @@
 .legal-page{background:#fbfcff}
 .legal-page .site-header{border-bottom:1px solid #edf0f5}
 @media(max-width:600px){.legal-content{padding-top:35px;padding-bottom:50px}.footer-inner>div{flex-wrap:wrap}}
+
+.payout-proof-form{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.payout-proof-form input{max-width:190px;font-size:9px}
+.payout-proof-form input[type=file]{border:1px solid #e1e6ef;border-radius:7px;padding:6px;background:#fff}
