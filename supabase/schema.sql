@@ -820,3 +820,28 @@ begin
   return new;
 end;
 $$;
+
+
+
+alter table public.profiles add column if not exists age_confirmed_at timestamptz not null default now();
+
+create or replace function private.handle_new_user()
+returns trigger language plpgsql security definer set search_path = ''
+as $$
+declare chosen_name text; chosen_type text;
+begin
+  if new.raw_user_meta_data ->> 'legal_acceptance' is distinct from 'true' then
+    raise exception 'You must accept AfriReach terms and privacy policy before creating an account';
+  end if;
+  if new.raw_user_meta_data ->> 'age_confirmation' is distinct from 'true' then
+    raise exception 'AfriReach accounts are restricted to adults aged 18 or older';
+  end if;
+  chosen_name := left(coalesce(nullif(btrim(new.raw_user_meta_data ->> 'display_name'), ''), split_part(coalesce(new.email, 'membre'), '@', 1)), 90);
+  if char_length(chosen_name) < 2 then chosen_name := 'Membre'; end if;
+  chosen_type := case when new.raw_user_meta_data ->> 'account_type' = 'creator' then 'creator' else 'participant' end;
+  insert into public.profiles (id,display_name,country,account_type,terms_accepted_at,privacy_accepted_at,terms_version,privacy_version,age_confirmed_at)
+  values (new.id,chosen_name,coalesce(nullif(btrim(new.raw_user_meta_data ->> 'country'), ''),'Togo'),
+    chosen_type,now(),now(),'2026-11-26','2026-11-26',now());
+  return new;
+end;
+$$;
