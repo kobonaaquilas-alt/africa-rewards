@@ -11,6 +11,7 @@ Le projet Supabase AfriReach est créé dans la région eu-west-1. Le schéma es
 - Paramètres administrateur pour les coordonnées de réception des frais et le support.
 - Soumission de preuve de frais par annonceur et validation par administrateur.
 - Protections des transitions de campagnes, candidatures et paiements.
+- Preuves privées pour frais de service, missions et transferts annonceur-participant ; le participant peut consulter la preuve puis confirmer ou contester le paiement.
 - Journal d'audit des changements administrateur.
 - Contrôle de sécurité Supabase : aucune anomalie signalée.
 - Les index encore « inutilisés » sont normaux sur une base neuve sans trafic.
@@ -54,7 +55,7 @@ Après vérification de l'entreprise ou du porteur de campagne, l'administrateur
 ## Contrôles avant lancement commercial
 - Tester avec plusieurs comptes indépendants (participant, créateur, annonceur et admin).
 - Tester l'inscription et la confirmation e-mail sur le domaine réellement publié.
-- Tester les permissions RLS, l'upload privé, la lecture des preuves par les parties autorisées et les transitions d'état.
+- Tester les permissions RLS, l'upload privé, la lecture des preuves par les parties autorisées, les transitions d'état et la confirmation/contestation des paiements.
 - Ajouter les coordonnées officielles de paiement des frais de service et le support.
 - Définir les conditions d'utilisation, la politique de confidentialité, la modération et les procédures de litige.
 - Vérifier les obligations réglementaires et fiscales applicables localement avant d'accepter des campagnes réelles.
