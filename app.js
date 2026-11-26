@@ -374,7 +374,7 @@ async function createPayout(applicationId,campaignId,participantId) {
   });
   if (error) showMessage("dashboardMessage",error.message,true);
   else showMessage("dashboardMessage","Paiement créé. Effectuez le transfert directement au participant, puis marquez-le comme payé.");
-  await loadCampaignApplications(campaignId);
+  await renderDashboard();
 }
 
 async function renderAdminDashboard(root) {
