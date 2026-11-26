@@ -62,7 +62,7 @@ async function handleAuth(event) {
     if (authMode === "signup") {
       const {data, error} = await db.auth.signUp({
         email, password,
-        options: {data: {
+        options: {emailRedirectTo: window.location.origin, data: {
           display_name: String(form.get("display_name") || "").trim(),
           account_type: form.get("account_type") === "creator" ? "creator" : "participant",
           country: String(form.get("country") || "Togo")
