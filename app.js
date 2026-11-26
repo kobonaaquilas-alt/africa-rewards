@@ -130,17 +130,27 @@ async function renderParticipantDashboard(root) {
     db.from("campaign_applications").select("id,campaign_id,status,submission_note,proof_reference,applied_at").eq("participant_id",currentUser.id).order("applied_at",{ascending:false}).limit(30)
   ]);
   const applied = new Set((applications || []).map(a => a.campaign_id));
-  root.innerHTML = `
-    <div class="member-summary"><b>Campagnes disponibles</b><span>${campaigns?.length || 0} campagne(s) active(s)</span></div>
-    <div class="member-list">${campaignError ? '<p class="empty-state">Impossible de charger les campagnes.</p>' : (campaigns || []).map(c => `
-      <article class="member-item">
-        <div><span class="member-type">${escapeHtml(c.campaign_type.replaceAll("_"," "))}</span><h4>${escapeHtml(c.title)}</h4><p>${escapeHtml(c.description)}</p><small>${escapeHtml(c.country)} · ${money(c.participant_reward)} · ${c.participant_slots} places</small></div>
-        <button class="mini-button" data-apply="${c.id}" ${applied.has(c.id) ? "disabled" : ""}>${applied.has(c.id) ? "Déjà inscrit" : "Participer"}</button>
-      </article>`).join("") || '<p class="empty-state">Aucune campagne active pour le moment. Revenez bientôt.</p>'}</div>
-    <h4 class="subheading">Mes candidatures</h4>
-    <div class="member-list">${(applications || []).map(a => `
-      <article class="member-item compact"><div><b>Candidature</b><small>Statut : ${escapeHtml(a.status)}</small></div>${a.status === "accepted" ? '<label class="upload-proof">Envoyer ma preuve<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" data-proof="' + a.id + '"></label>' : '<span class="status-pill">' + escapeHtml(a.status) + '</span>'}</article>`).join("") || '<p class="empty-state">Vous n'avez pas encore candidaté.</p>'}</div>
-    <h4 class="subheading">Mes paiements</h4><div id="myPayouts" class="member-list"><p class="empty-state">Chargement…</p></div>`;
+  const campaignHtml = (campaigns || []).map(c =>
+    '<article class="member-item"><div><span class="member-type">' +
+    escapeHtml(c.campaign_type.replaceAll("_"," ")) + '</span><h4>' + escapeHtml(c.title) +
+    '</h4><p>' + escapeHtml(c.description) + '</p><small>' + escapeHtml(c.country) + ' · ' +
+    money(c.participant_reward) + ' · ' + c.participant_slots + ' places</small></div>' +
+    '<button class="mini-button" data-apply="' + c.id + '"' +
+    (applied.has(c.id) ? ' disabled' : '') + '>' +
+    (applied.has(c.id) ? 'Déjà inscrit' : 'Participer') + '</button></article>'
+  ).join("");
+  const applicationHtml = (applications || []).map(a => {
+    const action = a.status === "accepted"
+      ? '<label class="upload-proof">Envoyer ma preuve<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" data-proof="' + a.id + '"></label>'
+      : '<span class="status-pill">' + escapeHtml(a.status) + '</span>';
+    return '<article class="member-item compact"><div><b>Candidature</b><small>Statut : ' +
+      escapeHtml(a.status) + '</small></div>' + action + '</article>';
+  }).join("");
+  root.innerHTML =
+    '<div class="member-summary"><b>Campagnes disponibles</b><span>' + ((campaigns || []).length) + ' campagne(s) active(s)</span></div>' +
+    '<div class="member-list">' + (campaignError ? '<p class="empty-state">Impossible de charger les campagnes.</p>' : campaignHtml || '<p class="empty-state">Aucune campagne active pour le moment. Revenez bientôt.</p>') + '</div>' +
+    '<h4 class="subheading">Mes candidatures</h4><div class="member-list">' + (applicationHtml || '<p class="empty-state">Vous n\'avez pas encore candidaté.</p>') + '</div>' +
+    '<h4 class="subheading">Mes paiements</h4><div id="myPayouts" class="member-list"><p class="empty-state">Chargement…</p></div>';
   root.querySelectorAll("[data-apply]").forEach(button => button.addEventListener("click", () => applyToCampaign(button.dataset.apply, button)));
   root.querySelectorAll("[data-proof]").forEach(input => input.addEventListener("change", () => uploadApplicationProof(input.dataset.proof, input.files?.[0])));
   await loadParticipantPayouts();
@@ -194,24 +204,35 @@ async function renderAdvertiserDashboard(root) {
     db.from("campaigns").select("*").eq("advertiser_id",currentUser.id).order("created_at",{ascending:false}),
     db.from("participant_payouts").select("id,amount,status,created_at").eq("advertiser_id",currentUser.id).order("created_at",{ascending:false}).limit(30)
   ]);
-  root.innerHTML = `
-    <div class="member-summary"><b>Mes campagnes</b><span>${campaigns?.length || 0} campagne(s)</span></div>
-    <form id="campaignForm" class="campaign-form">
-      <h4>Créer une campagne (brouillon)</h4>
-      <label>Titre<input name="title" required minlength="5" maxlength="120" placeholder="Ex. Découverte d'un nouveau service"></label>
-      <label>Description<textarea name="description" required minlength="20" maxlength="3000" placeholder="Décrivez la mission, les critères et les preuves attendues"></textarea></label>
-      <div class="form-row"><label>Type<select name="campaign_type"><option value="ad_discovery">Découverte publicitaire</option><option value="survey">Sondage</option><option value="product_test">Test produit</option><option value="creator_collaboration">Collaboration créateur</option></select></label><label>Pays<input name="country" value="${escapeHtml(currentProfile.country || "Togo")}" required></label></div>
-      <label>Objectif<input name="objective" required maxlength="500" placeholder="Résultat recherché"></label>
-      <div class="form-row"><label>Récompense / participant (XOF)<input name="participant_reward" type="number" min="1" step="1" required></label><label>Nombre de places<input name="participant_slots" type="number" min="1" max="100000" step="1" required></label></div>
-      <label class="check-line"><input name="rules_acknowledged" type="checkbox" required> Je confirme que cette campagne ne manipule pas artificiellement les statistiques des réseaux sociaux.</label>
-      <button class="mini-button" type="submit">Enregistrer le brouillon</button>
-      <small>Frais de service : 10 % du budget participants, minimum 100 XOF. Calculés automatiquement par la base. Aucune campagne ne sera publiée avant vérification.</small>
-    </form>
-    <div class="member-list">${error ? '<p class="empty-state">Impossible de charger vos campagnes.</p>' : (campaigns || []).map(c => `
-      <article class="member-item"><div><span class="status-pill">${escapeHtml(c.status)}</span><h4>${escapeHtml(c.title)}</h4><small>Budget participants : ${money(c.participant_budget)} · Frais AfriReach : ${money(c.service_fee)}</small></div><button class="mini-button" data-view-apps="${c.id}">Candidatures</button></article>`).join("") || '<p class="empty-state">Vous n'avez pas encore créé de campagne.</p>'}</div>
-    <div id="campaignApplications"></div>
-    <h4 class="subheading">Paiements directs aux participants</h4>
-    <div class="member-list">${(payouts || []).map(p => `<article class="member-item compact"><div><b>${money(p.amount)}</b><small>${escapeHtml(p.status)}</small></div>${p.status === "awaiting_advertiser_payment" ? '<button class="mini-button" data-mark-paid="' + p.id + '">J’ai effectué le transfert</button>' : '<span class="status-pill">' + escapeHtml(p.status) + '</span>'}</article>`).join("") || '<p class="empty-state">Aucun paiement à effectuer.</p>'}</div>`;
+  const campaignHtml = (campaigns || []).map(c =>
+    '<article class="member-item"><div><span class="status-pill">' + escapeHtml(c.status) +
+    '</span><h4>' + escapeHtml(c.title) + '</h4><small>Budget participants : ' +
+    money(c.participant_budget) + ' · Frais AfriReach : ' + money(c.service_fee) +
+    '</small></div><button class="mini-button" data-view-apps="' + c.id + '">Candidatures</button></article>'
+  ).join("");
+  const payoutHtml = (payouts || []).map(p =>
+    '<article class="member-item compact"><div><b>' + money(p.amount) + '</b><small>' +
+    escapeHtml(p.status) + '</small></div>' +
+    (p.status === "awaiting_advertiser_payment"
+      ? '<button class="mini-button" data-mark-paid="' + p.id + '">J’ai effectué le transfert</button>'
+      : '<span class="status-pill">' + escapeHtml(p.status) + '</span>') + '</article>'
+  ).join("");
+  root.innerHTML =
+    '<div class="member-summary"><b>Mes campagnes</b><span>' + ((campaigns || []).length) + ' campagne(s)</span></div>' +
+    '<form id="campaignForm" class="campaign-form">' +
+    '<h4>Créer une campagne (brouillon)</h4>' +
+    '<label>Titre<input name="title" required minlength="5" maxlength="120" placeholder="Ex. Découverte d\'un nouveau service"></label>' +
+    '<label>Description<textarea name="description" required minlength="20" maxlength="3000" placeholder="Décrivez la mission, les critères et les preuves attendues"></textarea></label>' +
+    '<div class="form-row"><label>Type<select name="campaign_type"><option value="ad_discovery">Découverte publicitaire</option><option value="survey">Sondage</option><option value="product_test">Test produit</option><option value="creator_collaboration">Collaboration créateur</option></select></label>' +
+    '<label>Pays<input name="country" value="' + escapeHtml(currentProfile.country || "Togo") + '" required></label></div>' +
+    '<label>Objectif<input name="objective" required maxlength="500" placeholder="Résultat recherché"></label>' +
+    '<div class="form-row"><label>Récompense / participant (XOF)<input name="participant_reward" type="number" min="1" step="1" required></label><label>Nombre de places<input name="participant_slots" type="number" min="1" max="100000" step="1" required></label></div>' +
+    '<label class="check-line"><input name="rules_acknowledged" type="checkbox" required> Je confirme que cette campagne ne manipule pas artificiellement les statistiques des réseaux sociaux.</label>' +
+    '<button class="mini-button" type="submit">Enregistrer le brouillon</button>' +
+    '<small>Frais de service : 10 % du budget participants, minimum 100 XOF. Calculés automatiquement par la base. Aucune campagne ne sera publiée avant vérification.</small></form>' +
+    '<div class="member-list">' + (error ? '<p class="empty-state">Impossible de charger vos campagnes.</p>' : campaignHtml || '<p class="empty-state">Vous n\'avez pas encore créé de campagne.</p>') + '</div>' +
+    '<div id="campaignApplications"></div><h4 class="subheading">Paiements directs aux participants</h4>' +
+    '<div class="member-list">' + (payoutHtml || '<p class="empty-state">Aucun paiement à effectuer.</p>') + '</div>';
   $("campaignForm")?.addEventListener("submit", createCampaign);
   root.querySelectorAll("[data-mark-paid]").forEach(b => b.addEventListener("click", () => markPayoutPaid(b.dataset.markPaid)));
   root.querySelectorAll("[data-view-apps]").forEach(b => b.addEventListener("click", () => loadCampaignApplications(b.dataset.viewApps)));
