@@ -210,7 +210,8 @@ async function renderAdvertiserDashboard(root) {
     db.from("platform_settings").select("fee_payment_phone,fee_payment_operator,fee_instructions").eq("id",true).maybeSingle(),
     db.from("platform_fee_payments").select("campaign_id,status,created_at").eq("advertiser_id",currentUser.id).order("created_at",{ascending:false})
   ]);
-  const feeStatus = new Map((feePayments || []).map(f => [f.campaign_id,f.status]));
+  const feeStatus = new Map();
+  (feePayments || []).forEach(f => { if (!feeStatus.has(f.campaign_id)) feeStatus.set(f.campaign_id,f.status); });
   const campaignHtml = (campaigns || []).map(c => {
     let action = '<button class="mini-button" data-view-apps="' + c.id + '">Candidatures</button>';
     if (c.status === "draft") action += '<button class="mini-button secondary" data-start-fee="' + c.id + '">Préparer le paiement des frais</button>';
