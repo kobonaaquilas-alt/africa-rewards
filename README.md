@@ -22,8 +22,10 @@ Connecter ce dépôt à Cloudflare Pages. Pour une publication de fichiers stati
 
 ## Prochaines étapes techniques
 1. Créer un projet Supabase distinct pour AfriReach.
-2. Exécuter le script `supabase/schema.sql` dans le SQL Editor.
-3. Configurer l'authentification, les rôles et les règles RLS.
+2. Lire `supabase/SETUP.md`, puis exécuter `supabase/schema.sql` uniquement dans le nouveau projet AfriReach.
+3. Configurer l'authentification, le premier administrateur et les rôles selon `supabase/SETUP.md`.
+
+Le schéma contient des protections supplémentaires contre la modification frauduleuse de champs sensibles, mais il n'a pas encore été exécuté ni testé sur une base réelle. Il ne doit pas être considéré comme validé pour la production.
 4. Connecter le frontend à Supabase via les variables publiques du projet (URL et anon/publishable key uniquement).
 5. Construire l'espace membre, les campagnes, les preuves de frais de service et le suivi des paiements directs.
 6. Effectuer les vérifications de sécurité, de conformité et de fonctionnement avant toute campagne réelle.
