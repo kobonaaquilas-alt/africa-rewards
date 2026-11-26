@@ -46,7 +46,7 @@ Après vérification de l'entreprise ou du porteur de campagne, l'administrateur
     where id = 'UUID_DU_COMPTE_ANNONCEUR';
 
 ## Règles financières du pilote
-- Frais de service AfriReach : 10 % du budget des récompenses, avec un minimum de 100 XOF, calculés côté base de données.
+- Frais de service AfriReach : 10 % du budget des récompenses, arrondis au XOF supérieur, avec un minimum de 100 XOF, calculés côté base de données.
 - Les frais de service sont payés à AfriReach et vérifiés par l'administration avant toute activation.
 - Les récompenses sont transférées directement par l'annonceur au participant ; AfriReach ne conserve pas ces fonds.
 - Les coordonnées de réception des frais AfriReach restent à saisir par le premier administrateur dans son espace. Aucun paiement de frais ne doit être demandé tant que ces coordonnées officielles ne sont pas ajoutées.
