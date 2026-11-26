@@ -498,3 +498,211 @@ with check (
   or (advertiser_id = (select auth.uid()) and status = 'marked_paid')
   or (participant_id = (select auth.uid()) and status in ('confirmed_by_participant','disputed'))
 );
+
+
+
+-- Keep the campaign fee and status transitions controlled by the database.
+create or replace function private.set_campaign_service_fee()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  if tg_op = 'INSERT' then
+    new.status := 'draft';
+    new.service_fee := greatest(100::numeric, round((new.participant_reward * new.participant_slots) * 0.10, 2));
+    return new;
+  end if;
+  if new.participant_reward is distinct from old.participant_reward
+    or new.participant_slots is distinct from old.participant_slots then
+    if old.status <> 'draft' then
+      raise exception 'Campaign budget and reward are locked after draft';
+    end if;
+    new.service_fee := greatest(100::numeric, round((new.participant_reward * new.participant_slots) * 0.10, 2));
+  end if;
+  if new.status = 'pending_review' and old.status is distinct from 'pending_review'
+    and not exists (select 1 from public.platform_fee_payments fp where fp.campaign_id = new.id and fp.status = 'approved') then
+    raise exception 'An approved service-fee payment is required before review';
+  end if;
+  if new.status = 'active' and old.status is distinct from 'active' then
+    if old.status not in ('pending_review','paused')
+      or not exists (select 1 from public.platform_fee_payments fp where fp.campaign_id = new.id and fp.status = 'approved') then
+      raise exception 'Only a reviewed campaign with approved service fees can be activated';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function private.guard_business_updates()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  actor uuid := (select auth.uid());
+  admin boolean := (select private.is_platform_admin());
+  campaign_owner uuid;
+begin
+  if admin then return new; end if;
+  if tg_table_name = 'profiles' then
+    if new.id is distinct from old.id or new.account_type is distinct from old.account_type or new.created_at is distinct from old.created_at then
+      raise exception 'Profile identity and account type are immutable by the user';
+    end if;
+    new.updated_at := now();
+    return new;
+  elsif tg_table_name = 'campaigns' then
+    if old.advertiser_id <> actor or new.id is distinct from old.id or new.advertiser_id is distinct from old.advertiser_id
+      or new.participant_budget is distinct from old.participant_budget or new.service_fee is distinct from old.service_fee
+      or new.currency is distinct from old.currency or new.created_at is distinct from old.created_at then
+      raise exception 'Campaign contains fields that the advertiser cannot change';
+    end if;
+    if old.status not in ('draft','pending_fee_payment') or new.status not in ('draft','pending_fee_payment','cancelled') then
+      raise exception 'This campaign can no longer be edited by the advertiser';
+    end if;
+    new.updated_at := now();
+    return new;
+  elsif tg_table_name = 'platform_fee_payments' then
+    raise exception 'Only platform administrators can review service-fee payments';
+  elsif tg_table_name = 'campaign_applications' then
+    if new.id is distinct from old.id or new.campaign_id is distinct from old.campaign_id
+      or new.participant_id is distinct from old.participant_id or new.applied_at is distinct from old.applied_at then
+      raise exception 'Application identity fields are immutable';
+    end if;
+    select c.advertiser_id into campaign_owner from public.campaigns c where c.id = old.campaign_id;
+    if old.participant_id = actor then
+      if new.status = 'submitted' then
+        if old.status <> 'accepted' or new.proof_reference is null or new.submitted_at is null
+          or not exists (select 1 from storage.objects o where o.bucket_id = 'afriareach-proofs'
+            and o.name = new.proof_reference and (storage.foldername(o.name))[1] = actor::text
+            and (storage.foldername(o.name))[2] = old.id::text) then
+          raise exception 'A valid private proof is required after acceptance';
+        end if;
+      elsif new.status = 'withdrawn' then
+        if old.status not in ('applied','accepted') or new.proof_reference is distinct from old.proof_reference
+          or new.submission_note is distinct from old.submission_note or new.submitted_at is distinct from old.submitted_at then
+          raise exception 'This application cannot be withdrawn now';
+        end if;
+      else
+        raise exception 'Participants may only submit proof or withdraw';
+      end if;
+      if new.reviewed_at is distinct from old.reviewed_at then raise exception 'Participants cannot set review timestamps'; end if;
+    elsif campaign_owner = actor then
+      if not ((old.status = 'applied' and new.status in ('accepted','rejected'))
+        or (old.status = 'submitted' and new.status in ('approved','rejected')))
+        or new.submission_note is distinct from old.submission_note
+        or new.proof_reference is distinct from old.proof_reference
+        or new.submitted_at is distinct from old.submitted_at then
+        raise exception 'Advertisers may only review valid application states';
+      end if;
+    else
+      raise exception 'Not authorized to update this application';
+    end if;
+    return new;
+  elsif tg_table_name = 'participant_payouts' then
+    if new.id is distinct from old.id or new.application_id is distinct from old.application_id
+      or new.campaign_id is distinct from old.campaign_id or new.advertiser_id is distinct from old.advertiser_id
+      or new.participant_id is distinct from old.participant_id or new.amount is distinct from old.amount
+      or new.currency is distinct from old.currency or new.payment_method is distinct from old.payment_method
+      or new.created_at is distinct from old.created_at then
+      raise exception 'Payout identity and amount fields are immutable';
+    end if;
+    if old.advertiser_id = actor then
+      if old.status <> 'awaiting_advertiser_payment' or new.status <> 'marked_paid'
+        or new.participant_confirmed_at is distinct from old.participant_confirmed_at
+        or new.dispute_note is distinct from old.dispute_note
+        or new.advertiser_proof_reference is distinct from old.advertiser_proof_reference then
+        raise exception 'Advertisers may only mark an unpaid direct transfer as paid';
+      end if;
+    elsif old.participant_id = actor then
+      if old.status <> 'marked_paid' or new.status not in ('confirmed_by_participant','disputed')
+        or new.advertiser_proof_reference is distinct from old.advertiser_proof_reference
+        or new.marked_paid_at is distinct from old.marked_paid_at then
+        raise exception 'Participants may only confirm or dispute a marked payment';
+      end if;
+    else
+      raise exception 'Not authorized to update this payout';
+    end if;
+    return new;
+  end if;
+  raise exception 'Unsupported update target';
+end;
+$$;
+
+-- Auth signup creates a restricted participant/creator profile automatically.
+create or replace function private.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare chosen_name text; chosen_type text;
+begin
+  chosen_name := left(coalesce(nullif(btrim(new.raw_user_meta_data ->> 'display_name'), ''), split_part(coalesce(new.email, 'membre'), '@', 1)), 90);
+  if char_length(chosen_name) < 2 then chosen_name := 'Membre'; end if;
+  chosen_type := case when new.raw_user_meta_data ->> 'account_type' = 'creator' then 'creator' else 'participant' end;
+  insert into public.profiles (id, display_name, country, account_type)
+  values (new.id, chosen_name, coalesce(nullif(btrim(new.raw_user_meta_data ->> 'country'), ''), 'Togo'), chosen_type);
+  return new;
+end;
+$$;
+revoke all on function private.handle_new_user() from public, anon, authenticated;
+drop trigger if exists on_auth_user_created_afriareach on auth.users;
+create trigger on_auth_user_created_afriareach after insert on auth.users for each row execute function private.handle_new_user();
+drop policy if exists "profiles_insert_self" on public.profiles;
+revoke insert on public.profiles from anon, authenticated;
+
+-- Private storage for proofs (5 MB max; image or PDF only).
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('afriareach-proofs','afriareach-proofs',false,5242880,array['image/jpeg','image/png','image/webp','application/pdf'])
+on conflict (id) do update set public=false,file_size_limit=excluded.file_size_limit,allowed_mime_types=excluded.allowed_mime_types;
+
+drop policy if exists "afriareach_proofs_upload_own" on storage.objects;
+create policy "afriareach_proofs_upload_own" on storage.objects for insert to authenticated
+with check (bucket_id='afriareach-proofs'
+  and (storage.foldername(name))[1]=(select auth.uid())::text
+  and (storage.foldername(name))[2] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+  and exists (select 1 from public.campaign_applications a where a.id::text=(storage.foldername(name))[2]
+    and a.participant_id=(select auth.uid()) and a.status='accepted'));
+
+drop policy if exists "afriareach_proofs_read_parties" on storage.objects;
+create policy "afriareach_proofs_read_parties" on storage.objects for select to authenticated
+using (bucket_id='afriareach-proofs' and (
+  (storage.foldername(name))[1]=(select auth.uid())::text
+  or (select private.is_platform_admin())
+  or exists (select 1 from public.campaign_applications a join public.campaigns c on c.id=a.campaign_id
+    where a.id::text=(storage.foldername(name))[2] and c.advertiser_id=(select auth.uid()))
+));
+
+-- Admin actions are recorded automatically, without exposing the audit writer to clients.
+create or replace function private.write_admin_audit_log()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare actor uuid := (select auth.uid()); entity uuid; old_status text; new_status text;
+begin
+  if actor is null or not (select private.is_platform_admin()) then return new; end if;
+  entity := nullif(to_jsonb(new)->>'id','')::uuid;
+  if entity is null then entity := nullif(to_jsonb(new)->>'user_id','')::uuid; end if;
+  old_status := to_jsonb(old)->>'status';
+  new_status := to_jsonb(new)->>'status';
+  insert into public.admin_audit_log(admin_id,action,entity_type,entity_id,details)
+  values(actor,tg_table_name||'.'||lower(tg_op),tg_table_name,entity,jsonb_build_object('old_status',old_status,'new_status',new_status));
+  return new;
+end;
+$$;
+revoke all on function private.write_admin_audit_log() from public, anon, authenticated;
+drop trigger if exists audit_campaign_admin_updates on public.campaigns;
+create trigger audit_campaign_admin_updates after update on public.campaigns for each row execute function private.write_admin_audit_log();
+drop trigger if exists audit_fee_admin_updates on public.platform_fee_payments;
+create trigger audit_fee_admin_updates after update on public.platform_fee_payments for each row execute function private.write_admin_audit_log();
+drop trigger if exists audit_application_admin_updates on public.campaign_applications;
+create trigger audit_application_admin_updates after update on public.campaign_applications for each row execute function private.write_admin_audit_log();
+drop trigger if exists audit_payout_admin_updates on public.participant_payouts;
+create trigger audit_payout_admin_updates after update on public.participant_payouts for each row execute function private.write_admin_audit_log();
+drop trigger if exists audit_profile_admin_updates on public.profiles;
+create trigger audit_profile_admin_updates after update on public.profiles for each row execute function private.write_admin_audit_log();
