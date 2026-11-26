@@ -42,6 +42,7 @@ function setAuthMode(mode) {
   $("authRole").required = mode === "signup";
   $("authCountry").required = mode === "signup";
   $("authLegal").required = mode === "signup";
+  $("authAge").required = mode === "signup";
   $("authPassword").autocomplete = mode === "signup" ? "new-password" : "current-password";
   $("authSubmit").innerHTML = mode === "signup" ? 'Créer mon compte <span>→</span>' : 'Me connecter <span>→</span>';
   showMessage("authMessage", mode === "signup"
@@ -67,6 +68,7 @@ async function handleAuth(event) {
           display_name: String(form.get("display_name") || "").trim(),
           account_type: form.get("account_type") === "creator" ? "creator" : "participant",
           legal_acceptance: $("authLegal").checked,
+          age_confirmation: $("authAge").checked,
           country: String(form.get("country") || "Togo")
         }}
       });
