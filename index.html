@@ -19,7 +19,7 @@
     <button class="menu-toggle" id="menuToggle" aria-label="Ouvrir le menu" aria-expanded="false">☰</button>
     <nav id="mainNav">
       <a href="#fonctionnement">Comment ça marche</a><a href="#missions">Missions</a><a href="#createurs">Créateurs</a><a href="#annonceurs">Annonceurs</a>
-      <a class="nav-login" href="#inscription">Se préinscrire</a>
+      <a class="nav-login" href="#espace-membre">Mon espace</a>
     </nav>
   </header>
 
@@ -84,7 +84,37 @@
       <form class="signup-card" id="interestForm"><h3>Préinscription à la bêta</h3><label for="fullName">Nom ou nom de votre entreprise</label><input id="fullName" name="fullName" required maxlength="90" placeholder="Votre nom"><label for="email">Adresse e-mail</label><input id="email" name="email" type="email" required maxlength="120" placeholder="vous@exemple.com"><label for="role">Je souhaite rejoindre AfriReach comme</label><select id="role" name="role" required><option value="">Choisir un profil</option><option value="Annonceur">Annonceur</option><option value="Créateur">Créateur de contenu</option><option value="Participant">Participant</option></select><label for="country">Pays</label><select id="country" name="country" required><option value="Togo">Togo</option><option value="Bénin">Bénin</option><option value="Côte d'Ivoire">Côte d'Ivoire</option><option value="Burkina Faso">Burkina Faso</option><option value="Autre">Autre</option></select><button class="btn btn-primary btn-full" type="submit">Envoyer ma préinscription <span>→</span></button><p class="form-note" id="formMessage">Formulaire de démonstration : aucune donnée n'est envoyée ni enregistrée pour le moment.</p></form>
     </div></section>
   </main>
+
+    <section class="member-section" id="espace-membre">
+      <div class="section-wrap member-layout">
+        <div class="member-intro">
+          <div class="eyebrow">VOTRE ESPACE AFRIREACH</div>
+          <h2>Connectez-vous.<br><em>Passez à l'action.</em></h2>
+          <p>Créez un compte participant ou créateur. Les comptes annonceurs seront activés après vérification. Les campagnes et paiements réels ne seront ouverts qu'après validation de la plateforme.</p>
+          <div class="member-points"><span>✓ Inscription sécurisée</span><span>✓ Profil indépendant</span><span>✓ Campagnes vérifiées</span></div>
+        </div>
+        <div class="member-card" id="authCard">
+          <div class="auth-tabs"><button type="button" class="auth-tab active" data-mode="signup">Créer un compte</button><button type="button" class="auth-tab" data-mode="signin">Connexion</button></div>
+          <form id="authForm">
+            <div id="signupFields">
+              <label for="authName">Nom complet</label><input id="authName" name="display_name" minlength="2" maxlength="90" autocomplete="name" placeholder="Votre nom" required>
+              <label for="authRole">Type de compte</label><select id="authRole" name="account_type"><option value="participant">Participant</option><option value="creator">Créateur de contenu</option></select>
+              <label for="authCountry">Pays</label><select id="authCountry" name="country"><option value="Togo">Togo</option><option value="Bénin">Bénin</option><option value="Côte d'Ivoire">Côte d'Ivoire</option><option value="Burkina Faso">Burkina Faso</option><option value="Autre">Autre</option></select>
+            </div>
+            <label for="authEmail">Adresse e-mail</label><input id="authEmail" name="email" type="email" autocomplete="email" maxlength="254" placeholder="vous@exemple.com" required>
+            <label for="authPassword">Mot de passe</label><input id="authPassword" name="password" type="password" autocomplete="new-password" minlength="8" placeholder="8 caractères minimum" required>
+            <button class="btn btn-primary btn-full" id="authSubmit" type="submit">Créer mon compte <span>→</span></button>
+            <p class="auth-message" id="authMessage" role="status" aria-live="polite">Vos données de compte sont enregistrées dans la base sécurisée AfriReach.</p>
+          </form>
+        </div>
+        <div class="member-dashboard" id="memberDashboard" hidden>
+          <div class="dashboard-head"><div><small>ESPACE PERSONNEL</small><h3 id="welcomeTitle">Bienvenue</h3><span id="profileRole" class="role-chip"></span></div><button id="signOutBtn" class="btn btn-quiet" type="button">Déconnexion</button></div>
+          <div id="dashboardContent"></div>
+          <p class="auth-message" id="dashboardMessage" role="status" aria-live="polite"></p>
+        </div>
+      </div>
+    </section>
   <footer><div class="section-wrap footer-inner"><a class="brand footer-brand" href="#accueil"><span class="brand-mark">A</span><span>Afri<span>Reach</span></span></a><span>© <span id="year"></span> AfriReach. Projet en préparation.</span><div><a href="#fonctionnement">Fonctionnement</a><a href="#paiements">Paiements</a><a href="#inscription">Contact</a></div></div><div class="section-wrap footer-legal">AfriReach est un projet indépendant en phase de préparation. Les noms et marques de réseaux sociaux cités le cas échéant appartiennent à leurs propriétaires respectifs.</div></footer>
-  <script src="/app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>\n  <script src="/app.js"></script>
 </body>
 </html>
