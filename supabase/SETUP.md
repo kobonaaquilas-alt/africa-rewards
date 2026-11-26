@@ -39,7 +39,7 @@ Les pages conditions.html et confidentialite.html sont des versions de travail, 
 Le rôle admin n'est jamais attribué depuis le navigateur ni depuis les métadonnées modifiables du profil. Après cette étape, connectez-vous à l'espace membre pour configurer les coordonnées de réception des frais et les contacts support.
 
 ## Attribution du rôle annonceur
-Après vérification de l'entreprise ou du porteur de campagne, l'administrateur peut attribuer le rôle :
+Après vérification de l'entreprise ou du porteur de campagne, l'administrateur peut cliquer sur « Activer annonceur » dans la section Comptes annonceurs de son espace. La commande SQL reste disponible en secours :
 
     update public.profiles
     set account_type = 'advertiser', updated_at = now()
