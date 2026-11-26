@@ -22,17 +22,20 @@ Le site utilise uniquement :
 
 Cette clé publishable est conçue pour être utilisée dans le navigateur. Aucune clé service_role ou clé secrète ne doit être ajoutée au frontend ou à Git.
 
+## Documents légaux et inscription
+Les pages conditions.html et confidentialite.html sont des versions de travail, à faire vérifier et compléter avant ouverture publique. L'inscription impose l'acceptation des deux documents et une confirmation d'âge minimum de 18 ans. Les versions acceptées et horodatages sont conservés dans le profil.
+
 ## Première ouverture du compte administrateur
 1. Publier le site AfriReach et définir son URL officielle.
 2. Dans Supabase > Authentication > URL Configuration, définir cette URL comme Site URL et l'ajouter aux Redirect URLs.
-3. Créer un compte AfriReach via l'écran « Mon espace » (un compte participant ou créateur).
+3. Créer un compte AfriReach via l'écran « Mon espace » (un compte participant ou créateur), avec une adresse e-mail valide. Confirmer l'adresse si Supabase l'exige.
 4. Dans Supabase > Authentication > Users, copier l'UUID du compte.
 5. Dans le SQL Editor du projet AfriReach uniquement, exécuter :
 
     insert into public.platform_admins (user_id)
     values ('UUID_DU_COMPTE_ADMIN');
 
-Le rôle admin n'est jamais attribué depuis le navigateur ni depuis les métadonnées modifiables du profil.
+Le rôle admin n'est jamais attribué depuis le navigateur ni depuis les métadonnées modifiables du profil. Après cette étape, connectez-vous à l'espace membre pour configurer les coordonnées de réception des frais et les contacts support.
 
 ## Attribution du rôle annonceur
 Après vérification de l'entreprise ou du porteur de campagne, l'administrateur peut attribuer le rôle :
