@@ -200,16 +200,31 @@ async function updatePayout(id, changes) {
 }
 
 async function renderAdvertiserDashboard(root) {
-  const [{data:campaigns,error},{data:payouts}] = await Promise.all([
+  const [{data:campaigns,error},{data:payouts},{data:settings},{data:feePayments}] = await Promise.all([
     db.from("campaigns").select("*").eq("advertiser_id",currentUser.id).order("created_at",{ascending:false}),
-    db.from("participant_payouts").select("id,amount,status,created_at").eq("advertiser_id",currentUser.id).order("created_at",{ascending:false}).limit(30)
+    db.from("participant_payouts").select("id,amount,status,created_at").eq("advertiser_id",currentUser.id).order("created_at",{ascending:false}).limit(30),
+    db.from("platform_settings").select("fee_payment_phone,fee_payment_operator,fee_instructions").eq("id",true).maybeSingle(),
+    db.from("platform_fee_payments").select("campaign_id,status").eq("advertiser_id",currentUser.id)
   ]);
-  const campaignHtml = (campaigns || []).map(c =>
-    '<article class="member-item"><div><span class="status-pill">' + escapeHtml(c.status) +
-    '</span><h4>' + escapeHtml(c.title) + '</h4><small>Budget participants : ' +
-    money(c.participant_budget) + ' · Frais AfriReach : ' + money(c.service_fee) +
-    '</small></div><button class="mini-button" data-view-apps="' + c.id + '">Candidatures</button></article>'
-  ).join("");
+  const feeStatus = new Map((feePayments || []).map(f => [f.campaign_id,f.status]));
+  const campaignHtml = (campaigns || []).map(c => {
+    let action = '<button class="mini-button" data-view-apps="' + c.id + '">Candidatures</button>';
+    if (c.status === "draft") action += '<button class="mini-button secondary" data-start-fee="' + c.id + '">Préparer le paiement des frais</button>';
+    if (c.status === "pending_fee_payment") {
+      const status = feeStatus.get(c.id);
+      if (status === "submitted") action += '<span class="status-pill">Preuve en vérification</span>';
+      else if (settings?.fee_payment_phone) {
+        action += '<div class="fee-payment-box"><b>Transfert des frais : ' + escapeHtml(settings.fee_payment_operator || "Transfert mobile") + '</b>' +
+          '<p>Numéro : <strong>' + escapeHtml(settings.fee_payment_phone) + '</strong></p>' +
+          '<p>' + escapeHtml(settings.fee_instructions || "Effectuez le transfert puis joignez la preuve.") + '</p>' +
+          '<form data-fee-form="' + c.id + '" class="fee-proof-form"><input name="sender_reference" placeholder="Référence du transfert (facultatif)" maxlength="120"><input name="proof" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required><button class="mini-button" type="submit">Envoyer la preuve</button></form></div>';
+      } else action += '<span class="empty-state">Les coordonnées de paiement AfriReach ne sont pas encore configurées. Contactez l’administration.</span>';
+    }
+    return '<article class="member-item"><div><span class="status-pill">' + escapeHtml(c.status) +
+      '</span><h4>' + escapeHtml(c.title) + '</h4><small>Budget participants : ' +
+      money(c.participant_budget) + ' · Frais AfriReach : ' + money(c.service_fee) +
+      '</small><div class="campaign-actions">' + action + '</div></div></article>';
+  }).join("");
   const payoutHtml = (payouts || []).map(p =>
     '<article class="member-item compact"><div><b>' + money(p.amount) + '</b><small>' +
     escapeHtml(p.status) + '</small></div>' +
@@ -236,6 +251,39 @@ async function renderAdvertiserDashboard(root) {
   $("campaignForm")?.addEventListener("submit", createCampaign);
   root.querySelectorAll("[data-mark-paid]").forEach(b => b.addEventListener("click", () => markPayoutPaid(b.dataset.markPaid)));
   root.querySelectorAll("[data-view-apps]").forEach(b => b.addEventListener("click", () => loadCampaignApplications(b.dataset.viewApps)));
+  root.querySelectorAll("[data-start-fee]").forEach(b => b.addEventListener("click", () => startFeePayment(b.dataset.startFee)));
+  root.querySelectorAll("[data-fee-form]").forEach(form => form.addEventListener("submit", e => submitFeePayment(e,form.dataset.feeForm)));
+}
+
+async function startFeePayment(campaignId) {
+  const {error} = await db.from("campaigns").update({status:"pending_fee_payment"}).eq("id",campaignId);
+  if (error) showMessage("dashboardMessage",error.message,true);
+  else showMessage("dashboardMessage","Étape de paiement ouverte. Suivez les coordonnées affichées pour transmettre la preuve.");
+  await renderDashboard();
+}
+
+async function submitFeePayment(event,campaignId) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const file = form.elements.proof.files?.[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) return showMessage("dashboardMessage","Fichier trop volumineux : maximum 5 Mo.",true);
+  if (!["image/jpeg","image/png","image/webp","application/pdf"].includes(file.type)) return showMessage("dashboardMessage","Format refusé. Utilisez JPG, PNG, WEBP ou PDF.",true);
+  const {data:campaign,error:campaignError} = await db.from("campaigns").select("service_fee").eq("id",campaignId).single();
+  if (campaignError) return showMessage("dashboardMessage",campaignError.message,true);
+  showMessage("dashboardMessage","Envoi de la preuve de frais…");
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+  const path = "fees/" + campaignId + "/" + currentUser.id + "/" + Date.now() + "-" + safeName;
+  const {error:uploadError} = await db.storage.from("afriareach-proofs").upload(path,file,{upsert:false,contentType:file.type});
+  if (uploadError) return showMessage("dashboardMessage",uploadError.message,true);
+  const {error} = await db.from("platform_fee_payments").insert({
+    campaign_id:campaignId,advertiser_id:currentUser.id,amount:campaign.service_fee,
+    status:"submitted",sender_reference:String(new FormData(form).get("sender_reference") || "").trim() || null,
+    proof_reference:path
+  });
+  if (error) return showMessage("dashboardMessage",error.message,true);
+  showMessage("dashboardMessage","Preuve envoyée. La campagne attend la vérification de l’administration.");
+  await renderDashboard();
 }
 
 async function createCampaign(event) {
@@ -309,23 +357,52 @@ async function createPayout(applicationId,campaignId,participantId) {
 }
 
 async function renderAdminDashboard(root) {
-  const [{data:campaigns},{data:fees}] = await Promise.all([
+  const [{data:campaigns},{data:fees},{data:settings}] = await Promise.all([
     db.from("campaigns").select("*").order("created_at",{ascending:false}).limit(50),
-    db.from("platform_fee_payments").select("*").order("created_at",{ascending:false}).limit(50)
+    db.from("platform_fee_payments").select("*").order("created_at",{ascending:false}).limit(50),
+    db.from("platform_settings").select("*").eq("id",true).maybeSingle()
   ]);
-  root.innerHTML = `
-    <div class="member-summary"><b>Administration AfriReach</b><span>Modération et vérification</span></div>
-    <h4 class="subheading">Campagnes à examiner</h4>
-    <div class="member-list">${(campaigns || []).map(c => `
-      <article class="member-item compact"><div><b>${escapeHtml(c.title)}</b><small>${escapeHtml(c.status)} · Frais : ${money(c.service_fee)}</small></div>
-      <div class="inline-actions">${c.status === "pending_review" ? '<button class="mini-button" data-campaign-status="' + c.id + '" data-status="active">Activer</button>' : ''}
-      ${["draft","pending_fee_payment","pending_review"].includes(c.status) ? '<button class="mini-button secondary" data-campaign-status="' + c.id + '" data-status="rejected">Rejeter</button>' : ''}</div></article>`).join("") || '<p class="empty-state">Aucune campagne.</p>'}</div>
-    <h4 class="subheading">Preuves de frais de service</h4>
-    <div class="member-list">${(fees || []).map(f => `
-      <article class="member-item compact"><div><b>${money(f.amount)}</b><small>${escapeHtml(f.status)} · Campagne ${escapeHtml(f.campaign_id.slice(0,8))}</small></div>
-      <div class="inline-actions">${f.status === "submitted" ? '<button class="mini-button" data-fee="' + f.id + '" data-fee-status="approved">Approuver</button><button class="mini-button secondary" data-fee="' + f.id + '" data-fee-status="rejected">Refuser</button>' : ''}</div></article>`).join("") || '<p class="empty-state">Aucune preuve de paiement reçue.</p>'}</div>`;
+  root.innerHTML =
+    '<div class="member-summary"><b>Administration AfriReach</b><span>Modération et vérification</span></div>' +
+    '<form id="settingsForm" class="campaign-form"><h4>Coordonnées de paiement et de support</h4>' +
+    '<label>Numéro de réception des frais<input name="fee_payment_phone" value="' + escapeHtml(settings?.fee_payment_phone || "") + '" placeholder="Numéro officiel AfriReach"></label>' +
+    '<label>Opérateur<input name="fee_payment_operator" value="' + escapeHtml(settings?.fee_payment_operator || "") + '" placeholder="Flooz, TMoney, banque…"></label>' +
+    '<label>Instructions de paiement<textarea name="fee_instructions" placeholder="Nom du bénéficiaire et consignes">' + escapeHtml(settings?.fee_instructions || "") + '</textarea></label>' +
+    '<label>E-mail support<input name="support_email" type="email" value="' + escapeHtml(settings?.support_email || "") + '" placeholder="support@exemple.com"></label>' +
+    '<label>Téléphone support<input name="support_phone" value="' + escapeHtml(settings?.support_phone || "") + '" placeholder="Contact support"></label>' +
+    '<button class="mini-button" type="submit">Enregistrer les coordonnées</button></form>' +
+    '<h4 class="subheading">Campagnes à examiner</h4><div class="member-list">' +
+    ((campaigns || []).map(c => '<article class="member-item compact"><div><b>' + escapeHtml(c.title) + '</b><small>' +
+      escapeHtml(c.status) + ' · Frais : ' + money(c.service_fee) + '</small></div><div class="inline-actions">' +
+      (c.status === "pending_review" ? '<button class="mini-button" data-campaign-status="' + c.id + '" data-status="active">Activer</button>' : '') +
+      (["draft","pending_fee_payment","pending_review"].includes(c.status) ? '<button class="mini-button secondary" data-campaign-status="' + c.id + '" data-status="rejected">Rejeter</button>' : '') +
+      '</div></article>').join("") || '<p class="empty-state">Aucune campagne.</p>') + '</div>' +
+    '<h4 class="subheading">Preuves de frais de service</h4><div class="member-list">' +
+    ((fees || []).map(f => '<article class="member-item compact"><div><b>' + money(f.amount) + '</b><small>' +
+      escapeHtml(f.status) + ' · Campagne ' + escapeHtml(f.campaign_id.slice(0,8)) + '</small></div><div class="inline-actions">' +
+      (f.proof_reference ? '<button class="mini-button secondary" data-proof-open="' + escapeHtml(f.proof_reference) + '">Voir preuve</button>' : '') +
+      (f.status === "submitted" ? '<button class="mini-button" data-fee="' + f.id + '" data-fee-status="approved">Approuver</button><button class="mini-button secondary" data-fee="' + f.id + '" data-fee-status="rejected">Refuser</button>' : '') +
+      '</div></article>').join("") || '<p class="empty-state">Aucune preuve de paiement reçue.</p>') + '</div>';
+  $("settingsForm")?.addEventListener("submit",savePlatformSettings);
   root.querySelectorAll("[data-campaign-status]").forEach(b => b.addEventListener("click", () => updateCampaignStatus(b.dataset.campaignStatus,b.dataset.status)));
   root.querySelectorAll("[data-fee]").forEach(b => b.addEventListener("click", () => reviewFee(b.dataset.fee,b.dataset.feeStatus)));
+  root.querySelectorAll("[data-proof-open]").forEach(b => b.addEventListener("click", () => openProof(b.dataset.proofOpen)));
+}
+
+async function savePlatformSettings(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  const {error} = await db.from("platform_settings").update({
+    fee_payment_phone:String(data.get("fee_payment_phone") || "").trim() || null,
+    fee_payment_operator:String(data.get("fee_payment_operator") || "").trim() || null,
+    fee_instructions:String(data.get("fee_instructions") || "").trim() || null,
+    support_email:String(data.get("support_email") || "").trim() || null,
+    support_phone:String(data.get("support_phone") || "").trim() || null,
+    updated_at:new Date().toISOString()
+  }).eq("id",true);
+  if (error) showMessage("dashboardMessage",error.message,true);
+  else showMessage("dashboardMessage","Coordonnées enregistrées.");
+  await renderDashboard();
 }
 
 async function updateCampaignStatus(id,status) {
