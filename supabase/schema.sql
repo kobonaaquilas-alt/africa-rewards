@@ -966,3 +966,6 @@ alter table public.platform_fee_payments drop constraint if exists platform_fee_
 alter table public.platform_fee_payments add constraint platform_fee_amount_whole_xof check (amount = trunc(amount));
 alter table public.participant_payouts drop constraint if exists payouts_amount_whole_xof;
 alter table public.participant_payouts add constraint payouts_amount_whole_xof check (amount = trunc(amount));
+
+alter table public.campaigns drop constraint if exists campaigns_rules_acknowledged_check;
+alter table public.campaigns add constraint campaigns_rules_acknowledged_check check (rules_acknowledged = true);
