@@ -959,3 +959,10 @@ $$;
 
 
 create index if not exists platform_fee_payments_campaign_status_idx on public.platform_fee_payments(campaign_id,status);
+
+alter table public.campaigns drop constraint if exists campaigns_reward_whole_xof;
+alter table public.campaigns add constraint campaigns_reward_whole_xof check (participant_reward = trunc(participant_reward));
+alter table public.platform_fee_payments drop constraint if exists platform_fee_amount_whole_xof;
+alter table public.platform_fee_payments add constraint platform_fee_amount_whole_xof check (amount = trunc(amount));
+alter table public.participant_payouts drop constraint if exists payouts_amount_whole_xof;
+alter table public.participant_payouts add constraint payouts_amount_whole_xof check (amount = trunc(amount));
